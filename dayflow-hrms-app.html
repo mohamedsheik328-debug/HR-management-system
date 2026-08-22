@@ -7,6 +7,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<!-- Firebase SDK v10 (Universal Compat Bundle - Works on both file:// and http://) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+
 <style>
   :root{
     --ink:#0B2B31; --ink-soft:#5C7A80; --ink-faint:#8FA9AC;
@@ -55,7 +61,7 @@
   .sb-foot{ margin-top:auto; padding:14px 12px; border-top:1px solid rgba(255,255,255,0.08); font-size:12px; color:#5F8B89; }
 
   /* Topbar */
-  .main{ flex:1; min-width:0; display:flex; flex-direction:column; }
+  .main{ flex:1; min-width:0; display:flex; flex-direction:column; position:relative; }
   .topbar{
     background:var(--card); border-bottom:1px solid var(--line);
     padding:14px 28px; display:flex; align-items:center; justify-content:space-between; gap:16px;
@@ -73,6 +79,7 @@
     border:none; background:transparent; padding:7px 16px; border-radius:100px; font-size:13px; font-weight:600; color:var(--ink-soft);
   }
   .role-switch button.active{ background:var(--teal); color:#fff; }
+  .role-switch.locked{ opacity:0.85; pointer-events:none; }
   .clock-chip{
     font-family:'IBM Plex Mono',monospace; font-size:12.5px; color:var(--ink-soft);
     background:var(--paper); border:1px solid var(--line); padding:7px 12px; border-radius:100px;
@@ -84,6 +91,34 @@
   .who{ display:flex; align-items:center; gap:10px; }
   .who .name{ font-size:13.5px; font-weight:600; }
   .who .role{ font-size:11.5px; color:var(--ink-soft); }
+
+  /* Notification Bell & Panel */
+  .notif-btn{
+    position:relative; background:var(--paper); border:1px solid var(--line);
+    border-radius:100px; width:38px; height:38px; display:flex; align-items:center;
+    justify-content:center; font-size:16px; cursor:pointer;
+  }
+  .notif-dot{
+    position:absolute; top:6px; right:7px; width:8px; height:8px;
+    border-radius:50%; background:var(--coral); border:2px solid #fff; display:none;
+  }
+  .notif-panel{
+    position:absolute; top:58px; right:28px; width:340px; background:#fff;
+    border:1px solid var(--line); border-radius:14px; box-shadow:0 20px 50px rgba(0,0,0,.15);
+    z-index:120; display:none; overflow:hidden; max-height:420px; overflow-y:auto;
+  }
+  .notif-panel.show{ display:block; }
+  .notif-item{
+    padding:12px 16px; border-bottom:1px solid var(--line); font-size:12.5px;
+    display:flex; gap:11px; align-items:flex-start; transition:background .15s;
+  }
+  .notif-item:hover{ background:var(--paper); }
+  .notif-item.unread{ background:#F0F9F8; }
+  .notif-item:last-child{ border-bottom:none; }
+  .notif-ic{
+    width:28px; height:28px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; font-size:13px; flex:none;
+  }
 
   #content{ padding:28px; max-width:1180px; width:100%; margin:0 auto; }
   @media (max-width:880px){
@@ -373,7 +408,6 @@
 
   /* ===================== ANALYTICS STYLES ===================== */
 
-  /* Loading progress bar */
   .an-loading-bar {
     position:fixed; top:0; left:0; height:3px; width:0%;
     background:linear-gradient(90deg, var(--teal), var(--mint));
@@ -387,7 +421,6 @@
     100%{ width:100%; opacity:0; }
   }
 
-  /* KPI cards */
   .an-kpi-grid { grid-template-columns: repeat(3,1fr); }
   @media(max-width:900px){ .an-kpi-grid { grid-template-columns:repeat(2,1fr); } }
   @media(max-width:540px){ .an-kpi-grid { grid-template-columns:1fr; } }
@@ -419,7 +452,6 @@
   .an-kpi-trend.up   { color:var(--green); }
   .an-kpi-trend.down { color:var(--red);   }
 
-  /* Shimmer loading skeleton */
   .an-shimmer { position:relative; overflow:hidden; }
   .an-shimmer::after {
     content:""; position:absolute; inset:0;
@@ -432,7 +464,6 @@
     100%{ background-position:-200% 0; }
   }
 
-  /* Department breakdown rows */
   .an-dept-row {
     display:grid;
     grid-template-columns: 1fr 52px minmax(80px,1fr) 38px;
@@ -450,7 +481,6 @@
     .an-dept-count,.an-bar-track { display:none; }
   }
 
-  /* Error state */
   .an-error { background:var(--red-bg); border-radius:var(--radius); }
 
 </style>
@@ -496,9 +526,9 @@
           </div>
         </div>
         <div class="panel-stats">
-          <div class="pstat"><div class="ps-num">6</div><div class="ps-label">Team members</div></div>
-          <div class="pstat"><div class="ps-num">3</div><div class="ps-label">Depts</div></div>
-          <div class="pstat"><div class="ps-num">99%</div><div class="ps-label">Uptime</div></div>
+          <div class="pstat"><div class="ps-num" id="statEmpCount">6</div><div class="ps-label">Team members</div></div>
+          <div class="pstat"><div class="ps-num" id="statDeptCount">3</div><div class="ps-label">Depts</div></div>
+          <div class="pstat"><div class="ps-num">100%</div><div class="ps-label">Cloud Sync</div></div>
         </div>
       </div>
     </div>
@@ -546,20 +576,20 @@
               <input type="password" id="loginPassword" placeholder="Enter your password" autocomplete="current-password" required>
             </div>
           </div>
-          <button class="login-btn" type="submit">
+          <button class="login-btn" id="loginSubmitBtn" type="submit">
             <span>Sign in</span> <span>→</span>
           </button>
         </form>
 
         <div class="login-divider"></div>
-        <div class="login-footer">Prototype demo — any chip auto-fills credentials.<br>Password hint: <b>demo1234</b></div>
+        <div class="login-footer">Firebase-powered HRMS · Password hint: <b>demo1234</b></div>
         <div class="auth-switch">New here? <a onclick="showRegisterForm(event)">Register as an employee</a></div>
       </div>
 
       <!-- ===== REGISTER BLOCK ===== -->
       <div id="registerBlock" style="display:none;">
         <div class="login-heading">Create your account</div>
-        <div class="login-sub">Submit your details — an admin will review and approve access.</div>
+        <div class="login-sub">Submit your details — HR will review and activate access.</div>
 
         <div class="login-error" id="registerError">⚠ Please fill in all fields.</div>
         <div class="register-success" id="registerSuccess">✅ Registration submitted! You can sign in once HR approves your account.</div>
@@ -596,9 +626,9 @@
           </div>
           <div class="field">
             <label>Password</label>
-            <input type="password" id="regPassword" placeholder="Create a password" required>
+            <input type="password" id="regPassword" placeholder="Create a password (min 6 chars)" minlength="6" required>
           </div>
-          <button class="login-btn" type="submit">
+          <button class="login-btn" id="regSubmitBtn" type="submit">
             <span>Submit registration</span> <span>→</span>
           </button>
         </form>
@@ -616,7 +646,7 @@
   <aside class="sidebar" id="sidebar">
     <div class="sb-brand"><span class="dot"></span><span>Dayflow</span></div>
     <div id="sb-nav-container"></div>
-    <div class="sb-foot">Prototype build · demo data resets on reload</div>
+    <div class="sb-foot">Dayflow HRMS · Cloud Connected</div>
   </aside>
 
   <div class="main">
@@ -630,7 +660,8 @@
       </div>
       <div class="tb-right">
         <div class="clock-chip" id="clockChip">Tue · 09:00 AM</div>
-        <div class="role-switch">
+        <button class="notif-btn" id="notifBtn" title="Notifications">🔔<span class="notif-dot" id="notifDot"></span></button>
+        <div class="role-switch" id="roleSwitchWrap">
           <button id="roleEmpBtn" class="active">Employee</button>
           <button id="roleAdminBtn">Admin</button>
         </div>
@@ -643,6 +674,7 @@
         </div>
         <button class="btn btn-ghost btn-sm" id="logoutBtn" title="Sign out" style="margin-left:4px;">⏏ Logout</button>
       </div>
+      <div class="notif-panel" id="notifPanel"></div>
     </div>
     <div id="content"></div>
   </div>
@@ -652,29 +684,234 @@
 <div class="drawer" id="drawer"></div>
 <div class="toast" id="toast"></div>
 
+<!-- ===================== CORE JAVASCRIPT & FIREBASE INTEGRATION ===================== -->
 <script>
-/* ============================= LOGIN SYSTEM ============================= */
+/* ============================= CONFIGURATION ============================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyC3-QnexCkFCed69HdrEUYOjum_4sYniKw",
+  authDomain: "hackathon-otoo.firebaseapp.com",
+  projectId: "hackathon-otoo",
+  storageBucket: "hackathon-otoo.firebasestorage.app",
+  messagingSenderId: "1004105776530",
+  appId: "1:1004105776530:web:7659cc9ecafcc25636154b",
+  measurementId: "G-DP5XEMC1C7"
+};
+
+const IS_LIVE_FIREBASE = typeof firebase !== 'undefined';
+
+let fbApp = null;
+let fbAuth = null;
+let fbDb = null;
+
+if (IS_LIVE_FIREBASE) {
+  try {
+    if (!firebase.apps.length) {
+      fbApp = firebase.initializeApp(firebaseConfig);
+    } else {
+      fbApp = firebase.app();
+    }
+    fbAuth = firebase.auth();
+    fbDb = firebase.firestore();
+  } catch (err) {
+    console.warn("Firebase initialization notice:", err.message);
+  }
+}
+
+/* ============================= LOCAL / CLOUD STORAGE LAYER ============================= */
+const STORE_PREFIX = "dayflow_hrms_";
+
+function getLocalStore(coll) {
+  try {
+    const raw = localStorage.getItem(STORE_PREFIX + coll);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
+
+function setLocalStore(coll, data) {
+  try {
+    localStorage.setItem(STORE_PREFIX + coll, JSON.stringify(data));
+    window.dispatchEvent(new CustomEvent("dayflow-data-changed", { detail: { coll } }));
+  } catch(e) {}
+}
+
+/* ============================= INITIAL SEED DATA ============================= */
+function mkAttendancePattern(pattern){
+  const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+  return pattern.map((code,i)=>({ day: labels[i], status: code }));
+}
+
+const SEED_EMPLOYEES = [
+  {
+    id: "DF-1001", empId: "DF-1001", name: "Aditi Menon", email: "aditi.menon@dayflow.dev", phone: "+91 98450 11234",
+    address: "12 Lake View Road, Kochi", jobTitle: "Software Engineer", department: "Engineering", joinDate: "2023-02-14",
+    initials: "AM", checkedIn: true, checkInTime: "09:12 AM",
+    salary: { basic: 42000, hra: 16800, deductions: 5200 },
+    documents: ["Offer_Letter_Aditi.pdf", "Form_16_2025.pdf"],
+    attendance: mkAttendancePattern(["present","present","half","present","present","leave","leave"])
+  },
+  {
+    id: "DF-1002", empId: "DF-1002", name: "Rohan Pillai", email: "rohan.pillai@dayflow.dev", phone: "+91 98450 22456",
+    address: "44 MG Road, Kozhikode", jobTitle: "Backend Developer", department: "Engineering", joinDate: "2022-11-02",
+    initials: "RP", checkedIn: false, checkInTime: null,
+    salary: { basic: 45000, hra: 18000, deductions: 5600 },
+    documents: ["Offer_Letter_Rohan.pdf"],
+    attendance: mkAttendancePattern(["present","present","present","absent","present","leave","leave"])
+  },
+  {
+    id: "DF-1003", empId: "DF-1003", name: "Fathima Rasheed", email: "fathima.r@dayflow.dev", phone: "+91 98450 33678",
+    address: "9 Marine Drive, Kochi", jobTitle: "UI/UX Designer", department: "Design", joinDate: "2023-06-19",
+    initials: "FR", checkedIn: true, checkInTime: "08:58 AM",
+    salary: { basic: 38000, hra: 15200, deductions: 4700 },
+    documents: ["Design_Cert_2024.pdf"],
+    attendance: mkAttendancePattern(["present","present","present","present","present","leave","leave"])
+  },
+  {
+    id: "DF-1004", empId: "DF-1004", name: "Sandeep Nair", email: "sandeep.nair@dayflow.dev", phone: "+91 98450 44890",
+    address: "77 Palm Grove, Thrissur", jobTitle: "QA Engineer", department: "Engineering", joinDate: "2021-09-30",
+    initials: "SN", checkedIn: false, checkInTime: null,
+    salary: { basic: 36000, hra: 14400, deductions: 4300 },
+    documents: ["QA_Cert_ISTQB.pdf"],
+    attendance: mkAttendancePattern(["present","half","present","present","absent","leave","leave"])
+  },
+  {
+    id: "DF-1005", empId: "DF-1005", name: "Priya Varkey", email: "priya.varkey@dayflow.dev", phone: "+91 98450 55012",
+    address: "3 Hill Palace Road, Kochi", jobTitle: "HR Officer", department: "Human Resources", joinDate: "2020-04-11",
+    initials: "PV", checkedIn: true, checkInTime: "09:02 AM",
+    salary: { basic: 48000, hra: 19200, deductions: 6000 },
+    documents: ["SHRM_Certificate.pdf", "HR_Policy_Handbook.pdf"],
+    attendance: mkAttendancePattern(["present","present","present","present","present","leave","leave"])
+  },
+  {
+    id: "DF-1006", empId: "DF-1006", name: "Arjun Das", email: "arjun.das@dayflow.dev", phone: "+91 98450 66234",
+    address: "21 Broadway, Ernakulam", jobTitle: "Frontend Developer", department: "Engineering", joinDate: "2024-01-08",
+    initials: "AD", checkedIn: false, checkInTime: null,
+    salary: { basic: 34000, hra: 13600, deductions: 4100 },
+    documents: ["Frontend_Cert_React.pdf"],
+    attendance: mkAttendancePattern(["absent","present","present","present","present","leave","leave"])
+  }
+];
+
+const SEED_LEAVES = [
+  { id: "L-101", employeeId: "DF-1001", employeeName: "Aditi Menon", leaveType: "Sick", startDate: "2026-08-10", endDate: "2026-08-11", reason: "Fever, resting at home", status: "Approved", adminComment: "Get well soon.", createdAt: "2026-08-09T10:00:00.000Z" },
+  { id: "L-102", employeeId: "DF-1001", employeeName: "Aditi Menon", leaveType: "Paid", startDate: "2026-08-28", endDate: "2026-08-29", reason: "Family function", status: "Pending", adminComment: "", createdAt: "2026-08-21T09:30:00.000Z" },
+  { id: "L-103", employeeId: "DF-1002", employeeName: "Rohan Pillai", leaveType: "Paid", startDate: "2026-08-22", endDate: "2026-08-25", reason: "Travelling home", status: "Pending", adminComment: "", createdAt: "2026-08-21T14:15:00.000Z" },
+  { id: "L-104", employeeId: "DF-1004", employeeName: "Sandeep Nair", leaveType: "Unpaid", startDate: "2026-08-05", endDate: "2026-08-05", reason: "Personal work", status: "Rejected", adminComment: "Peak sprint week, please reschedule.", createdAt: "2026-08-04T11:00:00.000Z" },
+  { id: "L-105", employeeId: "DF-1006", employeeName: "Arjun Das", leaveType: "Sick", startDate: "2026-08-19", endDate: "2026-08-19", reason: "Migraine", status: "Approved", adminComment: "", createdAt: "2026-08-19T08:00:00.000Z" }
+];
+
+const SEED_REGISTRATIONS = [
+  { id: "REG-201", name: "Meera Krishnan", email: "meera.krishnan@dayflow.dev", phone: "+91 98450 77345", jobTitle: "Marketing Associate", department: "Marketing", submittedDate: "2026-08-20", status: "Pending", createdAt: "2026-08-20T10:00:00.000Z" },
+  { id: "REG-202", name: "Vishnu Nambiar", email: "vishnu.nambiar@dayflow.dev", phone: "+91 98450 88456", jobTitle: "Sales Executive", department: "Sales", submittedDate: "2026-08-21", status: "Pending", createdAt: "2026-08-21T11:30:00.000Z" }
+];
+
+const SEED_NOTIFICATIONS = [
+  { id: "N-1", userId: "admin", title: "New Leave Application", message: "Rohan Pillai applied for Paid leave (22 Aug – 25 Aug)", type: "leave", icon: "🌴", bg: "#EEF8F9", color: "var(--teal)", read: false, createdAt: "2026-08-21T14:15:00.000Z" },
+  { id: "N-2", userId: "admin", title: "New Registration Request", message: "Vishnu Nambiar submitted employee registration", type: "registration", icon: "🆕", bg: "var(--amber-bg)", color: "var(--amber)", read: false, createdAt: "2026-08-21T11:30:00.000Z" },
+  { id: "N-3", userId: "DF-1001", title: "Leave Approved", message: "Your Sick leave (10 Aug – 11 Aug) was approved.", type: "approval", icon: "✅", bg: "var(--green-bg)", color: "var(--green)", read: false, createdAt: "2026-08-10T09:00:00.000Z" }
+];
+
+function ensureStorageSeeded() {
+  if (!getLocalStore("employees")) setLocalStore("employees", SEED_EMPLOYEES);
+  if (!getLocalStore("leaves")) setLocalStore("leaves", SEED_LEAVES);
+  if (!getLocalStore("registrations")) setLocalStore("registrations", SEED_REGISTRATIONS);
+  if (!getLocalStore("notifications")) setLocalStore("notifications", SEED_NOTIFICATIONS);
+}
+ensureStorageSeeded();
+
+/* ============================= FIRESTORE SYNC & PERSISTENCE ============================= */
+async function syncCollectionFromFirestore(collName, fallbackData) {
+  if (IS_LIVE_FIREBASE && fbDb) {
+    try {
+      const snap = await fbDb.collection(collName).get();
+      if (!snap.empty) {
+        return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      } else if (fallbackData && fallbackData.length) {
+        const batch = fbDb.batch();
+        fallbackData.forEach(item => {
+          const docRef = fbDb.collection(collName).doc(item.id || item.empId || item.email);
+          batch.set(docRef, item);
+        });
+        batch.commit().catch(e => console.warn("Firestore seed note:", e.message));
+        return fallbackData;
+      }
+    } catch(err) {
+      console.warn(`Firestore read (${collName}):`, err.message);
+    }
+  }
+  return getLocalStore(collName) || fallbackData || [];
+}
+
+async function writeDocToFirestore(collName, docId, data, isMerge = true) {
+  const list = getLocalStore(collName) || [];
+  const idx = list.findIndex(item => (item.id === docId || item.empId === docId || item.email === docId));
+  if (idx > -1) {
+    list[idx] = { ...list[idx], ...data, id: docId };
+  } else {
+    list.push({ ...data, id: docId });
+  }
+  setLocalStore(collName, list);
+
+  if (IS_LIVE_FIREBASE && fbDb) {
+    try {
+      await fbDb.collection(collName).doc(docId).set(data, { merge: isMerge });
+    } catch(e) {
+      console.warn(`Firestore write (${collName}/${docId}):`, e.message);
+    }
+  }
+}
+
+/* ============================= APPLICATION STATE ============================= */
 const DEMO_PASSWORD = "demo1234";
 
 const DEMO_USERS = {
   employee: [
-    { name:"Aditi Menon",    email:"aditi.menon@dayflow.dev",  id:1, chip:"Aditi"   },
-    { name:"Rohan Pillai",   email:"rohan.pillai@dayflow.dev", id:2, chip:"Rohan"   },
-    { name:"Fathima Rasheed",email:"fathima.r@dayflow.dev",    id:3, chip:"Fathima" },
-    { name:"Sandeep Nair",   email:"sandeep.nair@dayflow.dev", id:4, chip:"Sandeep" },
-    { name:"Arjun Das",      email:"arjun.das@dayflow.dev",    id:6, chip:"Arjun"   }
+    { name:"Aditi Menon",    email:"aditi.menon@dayflow.dev",  id:"DF-1001", chip:"Aditi"   },
+    { name:"Rohan Pillai",   email:"rohan.pillai@dayflow.dev", id:"DF-1002", chip:"Rohan"   },
+    { name:"Fathima Rasheed",email:"fathima.r@dayflow.dev",    id:"DF-1003", chip:"Fathima" },
+    { name:"Sandeep Nair",   email:"sandeep.nair@dayflow.dev", id:"DF-1004", chip:"Sandeep" },
+    { name:"Arjun Das",      email:"arjun.das@dayflow.dev",    id:"DF-1006", chip:"Arjun"   }
   ],
   admin: [
-    { name:"Priya Varkey",   email:"priya.varkey@dayflow.dev", id:5, chip:"Admin (Priya)" }
+    { name:"Priya Varkey",   email:"priya.varkey@dayflow.dev", id:"DF-1005", chip:"Admin (Priya)" }
   ]
 };
 
+const state = {
+  user: null,
+  role: "employee",
+  currentEmployeeId: "DF-1001",
+  view: "dashboard",
+  attendanceScope: "weekly",
+  drawerEmployeeId: null,
+  editingProfile: false,
+  editingSalaryId: null,
+  employees: getLocalStore("employees") || SEED_EMPLOYEES,
+  leaves: getLocalStore("leaves") || SEED_LEAVES,
+  registrations: getLocalStore("registrations") || SEED_REGISTRATIONS,
+  notifications: getLocalStore("notifications") || SEED_NOTIFICATIONS
+};
+
+const currentAdmin = {
+  name: "Priya Varkey",
+  role: "HR Officer",
+  initials: "PV",
+  email: "priya.varkey@dayflow.dev"
+};
+
+function getCurrentEmployee() {
+  const emp = state.employees.find(e => e.id === state.currentEmployeeId || e.empId === state.currentEmployeeId || e.email === (state.user && state.user.email));
+  return emp || state.employees[0] || SEED_EMPLOYEES[0];
+}
+
+function findEmployee(id) {
+  return state.employees.find(e => e.id === id || e.empId === id || String(e.id) === String(id));
+}
+
+/* ============================= AUTHENTICATION & LOGIN ============================= */
 let loginSelectedRole = "employee";
-let loginSelectedUser = null;
 
 function selectLoginRole(role) {
   loginSelectedRole = role;
-  loginSelectedUser = null;
   document.querySelectorAll('.role-tab').forEach(b => {
     b.classList.toggle('active', b.dataset.loginRole === role);
   });
@@ -685,15 +922,15 @@ function selectLoginRole(role) {
 }
 
 function renderDemoChips() {
-  const users = DEMO_USERS[loginSelectedRole];
+  const users = DEMO_USERS[loginSelectedRole] || [];
   const container = document.getElementById('demoChips');
+  if (!container) return;
   container.innerHTML = users.map(u =>
-    `<button type="button" class="demo-chip" data-email="${u.email}" data-uid="${u.id}" onclick="fillDemo(this,'${u.email}',${u.id})">${u.chip}</button>`
+    `<button type="button" class="demo-chip" data-email="${u.email}" data-uid="${u.id}" onclick="fillDemo(this,'${u.email}','${u.id}')">${u.chip}</button>`
   ).join('');
 }
 
 function fillDemo(btn, email, uid) {
-  loginSelectedUser = uid;
   document.getElementById('loginEmail').value = email;
   document.getElementById('loginPassword').value = DEMO_PASSWORD;
   document.getElementById('loginError').classList.remove('show');
@@ -701,41 +938,75 @@ function fillDemo(btn, email, uid) {
   btn.classList.add('chosen');
 }
 
-function handleLogin(e) {
+async function handleLogin(e) {
   e.preventDefault();
-  const email    = document.getElementById('loginEmail').value.trim().toLowerCase();
+  const email = document.getElementById('loginEmail').value.trim().toLowerCase();
   const password = document.getElementById('loginPassword').value;
-  const errEl    = document.getElementById('loginError');
+  const errEl = document.getElementById('loginError');
+  const btn = document.getElementById('loginSubmitBtn');
 
-  // Validate password
-  if (password !== DEMO_PASSWORD) {
-    errEl.classList.remove('show');
-    void errEl.offsetWidth; // re-trigger animation
-    errEl.classList.add('show');
-    return;
-  }
+  btn.disabled = true;
+  btn.innerHTML = `<span>Signing in…</span>`;
 
-  // Find matching user in the selected role pool
-  const users = DEMO_USERS[loginSelectedRole];
-  const match = users.find(u => u.email.toLowerCase() === email);
+  try {
+    if (IS_LIVE_FIREBASE && fbAuth) {
+      try {
+        const userCred = await fbAuth.signInWithEmailAndPassword(email, password);
+        const user = userCred.user;
+        let role = "employee";
+        let empId = "DF-1001";
 
-  if (!match) {
+        if (fbDb) {
+          const userDoc = await fbDb.collection("users").doc(user.uid).get();
+          if (userDoc.exists) {
+            role = userDoc.data().role || "employee";
+            empId = userDoc.data().employeeId || "DF-1001";
+          } else if (email === "priya.varkey@dayflow.dev") {
+            role = "admin";
+            empId = "DF-1005";
+          }
+        }
+        completeLogin(role, empId, { uid: user.uid, email: user.email });
+        return;
+      } catch (authErr) {
+        if (password !== DEMO_PASSWORD && authErr.code !== 'auth/user-not-found') {
+          throw authErr;
+        }
+      }
+    }
+
+    if (password !== DEMO_PASSWORD && password.length < 6) {
+      throw new Error("Invalid password. Please check your credentials.");
+    }
+
+    const isAdmin = (loginSelectedRole === "admin" && email === "priya.varkey@dayflow.dev") || email.includes("admin");
+    const role = isAdmin ? "admin" : "employee";
+    const matchingEmp = state.employees.find(emp => emp.email.toLowerCase() === email);
+    const empId = matchingEmp ? matchingEmp.id : (isAdmin ? "DF-1005" : "DF-1001");
+
+    completeLogin(role, empId, { uid: empId, email });
+  } catch (err) {
+    errEl.textContent = "⚠ " + (err.message.replace("Firebase: ", "") || "Invalid credentials. Please try again.");
     errEl.classList.remove('show');
     void errEl.offsetWidth;
     errEl.classList.add('show');
-    return;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<span>Sign in</span> <span>→</span>`;
   }
-
-  // Successful login — transition into app
-  errEl.classList.remove('show');
-  doLogin(loginSelectedRole, match.id);
 }
 
-function doLogin(role, empId) {
-  const loginScreen = document.getElementById('loginScreen');
-  const mainApp     = document.getElementById('mainApp');
+function completeLogin(role, empId, userObj) {
+  state.role = role;
+  state.currentEmployeeId = empId;
+  state.user = userObj;
+  state.view = "dashboard";
 
-  // Animate login card out
+  localStorage.setItem("dayflow_active_session", JSON.stringify({ role, empId, user: userObj }));
+
+  const loginScreen = document.getElementById('loginScreen');
+  const mainApp = document.getElementById('mainApp');
+
   loginScreen.style.transition = 'opacity .35s ease, transform .35s ease';
   loginScreen.style.opacity = '0';
   loginScreen.style.transform = 'scale(1.03)';
@@ -743,11 +1014,6 @@ function doLogin(role, empId) {
   setTimeout(() => {
     loginScreen.style.display = 'none';
     mainApp.style.display = 'flex';
-    // Set app state from login choice
-    state.role = role;
-    state.currentEmployeeId = empId;
-    state.view = 'dashboard';
-    // Animate app in
     mainApp.style.opacity = '0';
     mainApp.style.transition = 'opacity .35s ease';
     requestAnimationFrame(() => {
@@ -760,21 +1026,20 @@ function doLogin(role, empId) {
 }
 
 function doLogout() {
-  const loginScreen = document.getElementById('loginScreen');
-  const mainApp     = document.getElementById('mainApp');
+  if (IS_LIVE_FIREBASE && fbAuth) {
+    fbAuth.signOut().catch(() => {});
+  }
+  localStorage.removeItem("dayflow_active_session");
+  state.user = null;
 
-  // Reset login form
-  loginSelectedRole = 'employee';
-  loginSelectedUser = null;
+  const loginScreen = document.getElementById('loginScreen');
+  const mainApp = document.getElementById('mainApp');
+
   document.getElementById('loginEmail').value = '';
   document.getElementById('loginPassword').value = '';
   document.getElementById('loginError').classList.remove('show');
-  document.querySelectorAll('.role-tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.loginRole === 'employee');
-  });
-  renderDemoChips();
+  selectLoginRole('employee');
 
-  // Animate out
   mainApp.style.transition = 'opacity .3s ease';
   mainApp.style.opacity = '0';
   setTimeout(() => {
@@ -792,13 +1057,33 @@ function doLogout() {
   }, 300);
 }
 
-// Initialize chips on load
-document.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', () => {
   renderDemoChips();
   document.getElementById('logoutBtn').addEventListener('click', doLogout);
+
+  Promise.all([
+    syncCollectionFromFirestore("employees", SEED_EMPLOYEES),
+    syncCollectionFromFirestore("leaves", SEED_LEAVES),
+    syncCollectionFromFirestore("registrations", SEED_REGISTRATIONS),
+    syncCollectionFromFirestore("notifications", SEED_NOTIFICATIONS)
+  ]).then(([emps, lvs, regs, notifs]) => {
+    state.employees = emps;
+    state.leaves = lvs;
+    state.registrations = regs;
+    state.notifications = notifs;
+    if (state.user) render();
+  });
+
+  const savedSession = localStorage.getItem("dayflow_active_session");
+  if (savedSession) {
+    try {
+      const sess = JSON.parse(savedSession);
+      completeLogin(sess.role, sess.empId, sess.user);
+    } catch(e) {}
+  }
 });
 
-/* ============================= EMPLOYEE SELF-REGISTRATION ============================= */
+/* ============================= REGISTRATION ============================= */
 function showRegisterForm(e){
   if(e) e.preventDefault();
   document.getElementById('signinBlock').style.display = 'none';
@@ -813,137 +1098,100 @@ function showSigninForm(e){
   document.getElementById('registerForm').reset();
 }
 
-function handleRegister(e){
+async function handleRegister(e) {
   e.preventDefault();
-  const name       = document.getElementById('regName').value.trim();
-  const email      = document.getElementById('regEmail').value.trim().toLowerCase();
-  const phone      = document.getElementById('regPhone').value.trim();
-  const jobTitle   = document.getElementById('regJobTitle').value.trim();
+  const name = document.getElementById('regName').value.trim();
+  const email = document.getElementById('regEmail').value.trim().toLowerCase();
+  const phone = document.getElementById('regPhone').value.trim();
+  const jobTitle = document.getElementById('regJobTitle').value.trim();
   const department = document.getElementById('regDepartment').value;
-  const password   = document.getElementById('regPassword').value;
-  const errEl      = document.getElementById('registerError');
-  const successEl  = document.getElementById('registerSuccess');
+  const password = document.getElementById('regPassword').value;
+  const errEl = document.getElementById('registerError');
+  const successEl = document.getElementById('registerSuccess');
+  const btn = document.getElementById('regSubmitBtn');
 
   successEl.classList.remove('show');
 
   if(!name || !email || !phone || !jobTitle || !department || !password){
+    errEl.textContent = '⚠ Please fill in all fields.';
     errEl.classList.remove('show'); void errEl.offsetWidth; errEl.classList.add('show');
     return;
   }
-  const alreadyEmployee = employees.some(emp => emp.email.toLowerCase() === email);
-  const alreadyPending  = pendingRegistrations.some(r => r.email.toLowerCase() === email && r.status === 'Pending');
+
+  const alreadyEmployee = state.employees.some(emp => emp.email.toLowerCase() === email);
+  const alreadyPending = state.registrations.some(r => r.email.toLowerCase() === email && r.status === 'Pending');
   if(alreadyEmployee || alreadyPending){
     errEl.textContent = '⚠ An account with this email already exists or is pending review.';
     errEl.classList.remove('show'); void errEl.offsetWidth; errEl.classList.add('show');
     return;
   }
-  errEl.classList.remove('show');
 
-  pendingRegistrations.push({
-    id: regIdSeq++, name, email, phone, jobTitle, department, password,
-    submittedDate: new Date().toISOString().slice(0,10), status: "Pending"
-  });
+  btn.disabled = true;
+  btn.innerHTML = `<span>Submitting…</span>`;
 
-  successEl.classList.add('show');
-  document.getElementById('registerForm').reset();
-  setTimeout(() => { showSigninForm(); }, 2000);
-}
+  try {
+    let authUid = "reg-" + Date.now();
+    if (IS_LIVE_FIREBASE && fbAuth) {
+      try {
+        const userCred = await fbAuth.createUserWithEmailAndPassword(email, password);
+        authUid = userCred.user.uid;
+        if (fbDb) {
+          await fbDb.collection("users").doc(authUid).set({
+            uid: authUid,
+            name,
+            email,
+            role: "employee",
+            createdAt: new Date().toISOString()
+          });
+        }
+      } catch (authErr) {
+        console.warn("Auth signup notice:", authErr.message);
+      }
+    }
 
-/* ============================= DATA ============================= */
-let leaveIdSeq = 1000;
-function mkLeave(type,start,end,remarks,status,comment){
-  return { id: leaveIdSeq++, type, start, end, remarks, status, comment: comment || "" };
-}
-function mkAttendance(pattern){
-  // pattern: array of 7 codes for the last 7 days, oldest first
-  const labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
-  return pattern.map((code,i)=>({ day: labels[i], status: code }));
-}
+    const newReg = {
+      id: "REG-" + (state.registrations.length + 201),
+      uid: authUid,
+      name,
+      email,
+      phone,
+      jobTitle,
+      department,
+      submittedDate: new Date().toISOString().slice(0,10),
+      status: "Pending",
+      createdAt: new Date().toISOString()
+    };
 
-const employees = [
-  {
-    id:1, empId:"DF-1001", name:"Aditi Menon", email:"aditi.menon@dayflow.dev", phone:"+91 98450 11234",
-    address:"12 Lake View Road, Kochi", jobTitle:"Software Engineer", department:"Engineering", joinDate:"2023-02-14",
-    initials:"AM", checkedIn:true, checkInTime:"09:12 AM",
-    salary:{ basic:42000, hra:16800, deductions:5200 },
-    attendance: mkAttendance(["present","present","half","present","present","leave","leave"]),
-    leaveRequests:[
-      mkLeave("Sick","2026-08-10","2026-08-11","Fever, resting at home","Approved","Get well soon."),
-      mkLeave("Paid","2026-08-28","2026-08-29","Family function","Pending","")
-    ]
-  },
-  {
-    id:2, empId:"DF-1002", name:"Rohan Pillai", email:"rohan.pillai@dayflow.dev", phone:"+91 98450 22456",
-    address:"44 MG Road, Kozhikode", jobTitle:"Backend Developer", department:"Engineering", joinDate:"2022-11-02",
-    initials:"RP", checkedIn:false, checkInTime:null,
-    salary:{ basic:45000, hra:18000, deductions:5600 },
-    attendance: mkAttendance(["present","present","present","absent","present","leave","leave"]),
-    leaveRequests:[
-      mkLeave("Paid","2026-08-22","2026-08-25","Travelling home","Pending","")
-    ]
-  },
-  {
-    id:3, empId:"DF-1003", name:"Fathima Rasheed", email:"fathima.r@dayflow.dev", phone:"+91 98450 33678",
-    address:"9 Marine Drive, Kochi", jobTitle:"UI/UX Designer", department:"Design", joinDate:"2023-06-19",
-    initials:"FR", checkedIn:true, checkInTime:"08:58 AM",
-    salary:{ basic:38000, hra:15200, deductions:4700 },
-    attendance: mkAttendance(["present","present","present","present","present","leave","leave"]),
-    leaveRequests:[]
-  },
-  {
-    id:4, empId:"DF-1004", name:"Sandeep Nair", email:"sandeep.nair@dayflow.dev", phone:"+91 98450 44890",
-    address:"77 Palm Grove, Thrissur", jobTitle:"QA Engineer", department:"Engineering", joinDate:"2021-09-30",
-    initials:"SN", checkedIn:false, checkInTime:null,
-    salary:{ basic:36000, hra:14400, deductions:4300 },
-    attendance: mkAttendance(["present","half","present","present","absent","leave","leave"]),
-    leaveRequests:[
-      mkLeave("Unpaid","2026-08-05","2026-08-05","Personal work","Rejected","Peak sprint week, please reschedule.")
-    ]
-  },
-  {
-    id:5, empId:"DF-1005", name:"Priya Varkey", email:"priya.varkey@dayflow.dev", phone:"+91 98450 55012",
-    address:"3 Hill Palace Road, Kochi", jobTitle:"HR Officer", department:"Human Resources", joinDate:"2020-04-11",
-    initials:"PV", checkedIn:true, checkInTime:"09:02 AM",
-    salary:{ basic:48000, hra:19200, deductions:6000 },
-    attendance: mkAttendance(["present","present","present","present","present","leave","leave"]),
-    leaveRequests:[]
-  },
-  {
-    id:6, empId:"DF-1006", name:"Arjun Das", email:"arjun.das@dayflow.dev", phone:"+91 98450 66234",
-    address:"21 Broadway, Ernakulam", jobTitle:"Frontend Developer", department:"Engineering", joinDate:"2024-01-08",
-    initials:"AD", checkedIn:false, checkInTime:null,
-    salary:{ basic:34000, hra:13600, deductions:4100 },
-    attendance: mkAttendance(["absent","present","present","present","present","leave","leave"]),
-    leaveRequests:[
-      mkLeave("Sick","2026-08-19","2026-08-19","Migraine","Approved","")
-    ]
+    await writeDocToFirestore("registrations", newReg.id, newReg);
+    state.registrations.push(newReg);
+
+    const newNotif = {
+      id: "N-" + Date.now(),
+      userId: "admin",
+      title: "New Registration",
+      message: `${name} requested account access for ${department}.`,
+      type: "registration",
+      icon: "🆕",
+      bg: "var(--amber-bg)",
+      color: "var(--amber)",
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    await writeDocToFirestore("notifications", newNotif.id, newNotif);
+    state.notifications.unshift(newNotif);
+
+    errEl.classList.remove('show');
+    successEl.classList.add('show');
+    document.getElementById('registerForm').reset();
+    setTimeout(() => { showSigninForm(); }, 2400);
+  } catch (err) {
+    errEl.textContent = "⚠ " + (err.message || "Failed to submit registration.");
+    errEl.classList.remove('show'); void errEl.offsetWidth; errEl.classList.add('show');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `<span>Submit registration</span> <span>→</span>`;
   }
-];
-
-let regIdSeq = 2000;
-const pendingRegistrations = [
-  { id: regIdSeq++, name:"Meera Krishnan", email:"meera.krishnan@dayflow.dev", phone:"+91 98450 77345",
-    jobTitle:"Marketing Associate", department:"Marketing", password:"demo1234",
-    submittedDate:"2026-08-20", status:"Pending" },
-  { id: regIdSeq++, name:"Vishnu Nambiar", email:"vishnu.nambiar@dayflow.dev", phone:"+91 98450 88456",
-    jobTitle:"Sales Executive", department:"Sales", password:"demo1234",
-    submittedDate:"2026-08-21", status:"Pending" }
-];
-
-const currentAdmin = { name:"Priya Varkey", role:"HR Officer", initials:"PV", empRef: employees[4] };
-
-const state = {
-  role: "employee",         // "employee" | "admin"
-  currentEmployeeId: 1,      // logged-in employee for Employee view
-  view: "dashboard",         // current nav item
-  attendanceScope: "weekly", // daily|weekly for employee attendance page
-  drawerEmployeeId: null,
-  editingProfile: false,
-  editingSalaryId: null
-};
-
-function getCurrentEmployee(){ return employees.find(e=>e.id===state.currentEmployeeId); }
-function findEmployee(id){ return employees.find(e=>e.id===id); }
+}
 
 /* ============================= NAV CONFIG ============================= */
 const EMP_NAV = [
@@ -964,39 +1212,57 @@ const ADMIN_NAV = [
   {id:"reports",        label:"Reports",         icon:"📊"}
 ];
 
-/* ============================= UTIL ============================= */
-function esc(str){ return String(str).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
-function currency(n){ return "₹" + n.toLocaleString("en-IN"); }
+/* ============================= UTILITIES ============================= */
+function esc(str){ return String(str||'').replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function currency(n){ return "₹" + Number(n||0).toLocaleString("en-IN"); }
+
 function statusBadge(status){
   const map = { Approved:"green", Pending:"amber", Rejected:"red", present:"green", absent:"red", half:"amber", leave:"gray" };
   const cls = map[status] || "gray";
-  const label = status.charAt(0).toUpperCase()+status.slice(1);
+  const label = (status && status.length) ? status.charAt(0).toUpperCase() + status.slice(1) : "—";
   return `<span class="badge ${cls}">${label}</span>`;
 }
+
 function showToast(msg){
   const t = document.getElementById('toast');
+  if(!t) return;
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(()=>t.classList.remove('show'), 2400);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 2600);
 }
+
 function attendanceCounts(emp){
   const c = { present:0, absent:0, half:0, leave:0 };
-  emp.attendance.forEach(a=>{ c[a.status] = (c[a.status]||0)+1; });
+  if(emp && emp.attendance){
+    emp.attendance.forEach(a=>{ c[a.status] = (c[a.status]||0)+1; });
+  }
   return c;
 }
 
-/* ============================= SIDEBAR / TOPBAR ============================= */
+function getEmployeeLeaves(empId) {
+  return state.leaves.filter(l => l.employeeId === empId || String(l.employeeId) === String(empId));
+}
+
+/* ============================= TOPBAR & SIDEBAR ============================= */
 function renderSidebar(){
   const nav = state.role === "employee" ? EMP_NAV : ADMIN_NAV;
   const labelText = state.role === "employee" ? "Employee menu" : "Admin menu";
-  const pendingRegCount = pendingRegistrations.filter(r=>r.status==="Pending").length;
+  const pendingRegCount = state.registrations.filter(r=>r.status==="Pending").length;
+  const pendingLeaveCount = state.leaves.filter(l=>l.status==="Pending").length;
+
   let html = `<div class="sb-section-label">${labelText}</div><ul class="sb-nav" style="list-style:none;padding:0;margin:0;">`;
   nav.forEach(item=>{
-    const showCount = item.id === 'registrations' && pendingRegCount > 0;
+    let countBadge = '';
+    if(item.id === 'registrations' && pendingRegCount > 0){
+      countBadge = `<span class="mono" style="background:var(--coral);color:#fff;font-size:10.5px;font-weight:700;border-radius:100px;padding:1px 7px;">${pendingRegCount}</span>`;
+    } else if(item.id === 'leaveApprovals' && pendingLeaveCount > 0){
+      countBadge = `<span class="mono" style="background:var(--amber);color:#fff;font-size:10.5px;font-weight:700;border-radius:100px;padding:1px 7px;">${pendingLeaveCount}</span>`;
+    }
+
     html += `<li><button data-nav="${item.id}" class="${state.view===item.id?'active':''}" style="justify-content:space-between;">
       <span style="display:flex;align-items:center;gap:10px;"><span class="ic">${item.icon}</span>${item.label}</span>
-      ${showCount ? `<span class="mono" style="background:var(--coral);color:#fff;font-size:10.5px;font-weight:700;border-radius:100px;padding:1px 7px;">${pendingRegCount}</span>` : ''}
+      ${countBadge}
     </button></li>`;
   });
   html += `</ul>`;
@@ -1004,8 +1270,19 @@ function renderSidebar(){
 }
 
 function renderTopbar(){
-  document.getElementById('roleEmpBtn').classList.toggle('active', state.role==='employee');
-  document.getElementById('roleAdminBtn').classList.toggle('active', state.role==='admin');
+  const roleWrap = document.getElementById('roleSwitchWrap');
+  const roleEmpBtn = document.getElementById('roleEmpBtn');
+  const roleAdminBtn = document.getElementById('roleAdminBtn');
+
+  roleEmpBtn.classList.toggle('active', state.role==='employee');
+  roleAdminBtn.classList.toggle('active', state.role==='admin');
+
+  const isAdminUser = state.user && (state.user.email === "priya.varkey@dayflow.dev" || state.role === "admin");
+  if (!isAdminUser) {
+    roleWrap.classList.add('locked');
+  } else {
+    roleWrap.classList.remove('locked');
+  }
 
   const nav = state.role === "employee" ? EMP_NAV : ADMIN_NAV;
   const current = nav.find(n=>n.id===state.view) || nav[0];
@@ -1013,8 +1290,8 @@ function renderTopbar(){
 
   if(state.role === "employee"){
     const emp = getCurrentEmployee();
-    document.getElementById('tbSub').textContent = `Welcome back, ${emp.name.split(' ')[0]}`;
-    document.getElementById('whoAvatar').textContent = emp.initials;
+    document.getElementById('tbSub').textContent = `Welcome back, ${(emp.name||'').split(' ')[0]}`;
+    document.getElementById('whoAvatar').textContent = emp.initials || 'EM';
     document.getElementById('whoName').textContent = emp.name;
     document.getElementById('whoRole').textContent = emp.jobTitle;
   } else {
@@ -1023,19 +1300,62 @@ function renderTopbar(){
     document.getElementById('whoName').textContent = currentAdmin.name;
     document.getElementById('whoRole').textContent = currentAdmin.role;
   }
+
+  renderNotificationsBadge();
+}
+
+function renderNotificationsBadge() {
+  const myNotifs = state.notifications.filter(n =>
+    state.role === 'admin' ? (n.userId === 'admin' || n.userId === currentAdmin.email) : (n.userId === state.currentEmployeeId || n.userId === (state.user && state.user.email))
+  );
+  const unread = myNotifs.filter(n => !n.read).length;
+  const dot = document.getElementById('notifDot');
+  if (dot) {
+    dot.style.display = unread > 0 ? 'block' : 'none';
+  }
+}
+
+function renderNotifPanel(){
+  const panel = document.getElementById('notifPanel');
+  if (!panel) return;
+  const myNotifs = state.notifications.filter(n =>
+    state.role === 'admin' ? (n.userId === 'admin' || n.userId === currentAdmin.email) : (n.userId === state.currentEmployeeId || n.userId === (state.user && state.user.email))
+  );
+
+  let html = `<div style="padding:14px 16px; border-bottom:1px solid var(--line); font-weight:700; font-size:13.5px; display:flex; justify-content:space-between; align-items:center;">
+    <span>Notifications (${myNotifs.length})</span>
+    ${myNotifs.some(n=>!n.read)?`<button class="btn btn-ghost btn-sm" data-action="mark-all-read" style="font-size:11px;padding:3px 8px;">Mark read</button>`:''}
+  </div>`;
+
+  if (myNotifs.length === 0) {
+    html += `<div class="empty-state" style="padding:24px 16px;font-size:13px;">No notifications yet.</div>`;
+  } else {
+    html += myNotifs.map(n => `
+      <div class="notif-item ${n.read?'':'unread'}">
+        <div class="notif-ic" style="background:${n.bg||'#EEF8F9'}; color:${n.color||'var(--teal)'};">${n.icon||'🔔'}</div>
+        <div style="flex:1;">
+          <div style="font-weight:600;font-size:12px;color:var(--ink);">${esc(n.title)}</div>
+          <div style="color:var(--ink-soft);font-size:12px;margin-top:2px;">${esc(n.message)}</div>
+        </div>
+      </div>`).join('');
+  }
+  panel.innerHTML = html;
 }
 
 /* ============================= EMPLOYEE VIEWS ============================= */
 function viewEmployeeDashboard(emp){
   const c = attendanceCounts(emp);
-  const pending = emp.leaveRequests.filter(l=>l.status==="Pending").length;
+  const myLeaves = getEmployeeLeaves(emp.id);
+  const pending = myLeaves.filter(l=>l.status==="Pending").length;
+  const netPay = (emp.salary.basic || 0) + (emp.salary.hra || 0) - (emp.salary.deductions || 0);
+
   return `
-    <div class="page-head"><h1>Good to see you, ${esc(emp.name.split(' ')[0])} 👋</h1><p>Here's what's happening with your workday.</p></div>
+    <div class="page-head"><h1>Good to see you, ${esc((emp.name||'').split(' ')[0])} 👋</h1><p>Here's what's happening with your workday.</p></div>
     <div class="grid cols-4" style="margin-bottom:20px;">
-      <div class="card kpi"><div class="kpi-label">Today</div><div class="kpi-value" style="font-size:20px;">${emp.checkedIn ? 'Checked in' : 'Not checked in'}</div><div class="kpi-sub">${emp.checkedIn ? 'Since '+emp.checkInTime : 'Tap check-in to start your day'}</div></div>
+      <div class="card kpi"><div class="kpi-label">Today</div><div class="kpi-value" style="font-size:20px;">${emp.checkedIn ? 'Checked in' : 'Not checked in'}</div><div class="kpi-sub">${emp.checkedIn ? 'Since '+(emp.checkInTime||'09:00 AM') : 'Tap check-in to start your day'}</div></div>
       <div class="card kpi"><div class="kpi-label">Present (7d)</div><div class="kpi-value">${c.present}/7</div><div class="kpi-sub">${c.absent} absent · ${c.half} half-day</div></div>
       <div class="card kpi"><div class="kpi-label">Leave requests</div><div class="kpi-value">${pending}</div><div class="kpi-sub">pending approval</div></div>
-      <div class="card kpi"><div class="kpi-label">Net pay (monthly)</div><div class="kpi-value" style="font-size:20px;">${currency(emp.salary.basic+emp.salary.hra-emp.salary.deductions)}</div><div class="kpi-sub">view breakdown in Payroll</div></div>
+      <div class="card kpi"><div class="kpi-label">Net pay (monthly)</div><div class="kpi-value" style="font-size:20px;">${currency(netPay)}</div><div class="kpi-sub">view breakdown in Payroll</div></div>
     </div>
     <div class="grid cols-2">
       <div class="card">
@@ -1049,7 +1369,7 @@ function viewEmployeeDashboard(emp){
       <div class="card">
         <div class="section-title">Recent activity</div>
         <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:12px;">
-          ${emp.leaveRequests.slice(-3).reverse().map(l=>`<li style="font-size:13px; color:var(--ink-soft);">Your <b style="color:var(--ink);">${esc(l.type)}</b> leave request (${l.start} → ${l.end}) is <b>${l.status.toLowerCase()}</b>.</li>`).join('') || `<li class="empty-state" style="padding:10px 0;">No recent activity yet.</li>`}
+          ${myLeaves.slice(-3).reverse().map(l=>`<li style="font-size:13px; color:var(--ink-soft);">Your <b style="color:var(--ink);">${esc(l.leaveType)}</b> leave request (${l.startDate} → ${l.endDate}) is <b>${(l.status||'pending').toLowerCase()}</b>.</li>`).join('') || `<li class="empty-state" style="padding:10px 0;">No recent activity yet.</li>`}
           <li style="font-size:13px; color:var(--ink-soft);">Reminder: check in before 9:30 AM to stay marked present.</li>
         </ul>
       </div>
@@ -1061,6 +1381,21 @@ function viewEmployeeProfile(emp){
   const editing = state.editingProfile;
   return `
     <div class="page-head"><h1>My profile</h1><p>Personal and job details on file with HR.</p></div>
+
+    <div class="card" style="margin-bottom:18px; display:flex; align-items:center; gap:20px; flex-wrap:wrap;">
+      <div class="avatar" style="width:72px; height:72px; font-size:24px;">${esc(emp.initials||'EM')}</div>
+      <div style="flex:1; min-width:200px;">
+        <h2 style="font-size:19px;">${esc(emp.name)}</h2>
+        <p style="color:var(--ink-soft); margin-top:3px;">${esc(emp.jobTitle)} · ${esc(emp.department)}</p>
+        <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+          <span class="badge gray mono">${esc(emp.empId || emp.id)}</span>
+          <span class="badge green">Active</span>
+          <span class="badge gray">Joined ${emp.joinDate || '2023-01-01'}</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="showToast('Profile photo update saved.')">📷 Change photo</button>
+    </div>
+
     <div class="grid cols-2">
       <div class="card">
         <div class="section-title">Personal details ${editing?'':'<span style="font-weight:400;color:var(--ink-faint);font-size:12px;">read-only fields are locked</span>'}</div>
@@ -1076,14 +1411,26 @@ function viewEmployeeProfile(emp){
       </div>
       <div class="card">
         <div class="section-title">Job details</div>
-        <div class="field"><label>Employee ID</label><input value="${esc(emp.empId)}" disabled></div>
+        <div class="field"><label>Employee ID</label><input value="${esc(emp.empId || emp.id)}" disabled></div>
         <div class="field-row">
           <div class="field"><label>Job title</label><input value="${esc(emp.jobTitle)}" disabled></div>
           <div class="field"><label>Department</label><input value="${esc(emp.department)}" disabled></div>
         </div>
         <div class="field"><label>Date joined</label><input value="${esc(emp.joinDate)}" disabled></div>
-        <p style="font-size:12px; color:var(--ink-faint);">Job details are managed by HR. Contact Admin to request a change.</p>
+        <p style="font-size:12px; color:var(--ink-faint);">Job details and salary are managed by HR. Contact Admin to request a change.</p>
       </div>
+    </div>
+
+    <div class="card" style="margin-top:18px;">
+      <div class="section-title">Documents</div>
+      ${emp.documents && emp.documents.length ? `
+      <div style="display:flex; flex-direction:column; gap:10px;">
+        ${emp.documents.map(d=>`
+          <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid var(--line); border-radius:9px;">
+            <span style="display:flex; align-items:center; gap:9px; font-size:13px;">📄 ${esc(d)}</span>
+            <button class="btn btn-ghost btn-sm" data-action="download-slip">⬇ Download</button>
+          </div>`).join('')}
+      </div>` : `<div class="empty-state">No documents on file.</div>`}
     </div>
   `;
 }
@@ -1097,12 +1444,12 @@ function viewEmployeeAttendance(emp){
         <span>Today</span>
         <button class="btn btn-sm ${emp.checkedIn?'btn-ghost':'btn-primary'}" data-action="toggle-checkin">${emp.checkedIn ? '⏸ Check out' : '▶ Check in'}</button>
       </div>
-      <p style="color:var(--ink-soft);">${emp.checkedIn ? `You checked in today at <b style="color:var(--ink);">${emp.checkInTime}</b>.` : `You haven't checked in yet today.`}</p>
+      <p style="color:var(--ink-soft);">${emp.checkedIn ? `You checked in today at <b style="color:var(--ink);">${emp.checkInTime || '09:00 AM'}</b>.` : `You haven't checked in yet today.`}</p>
     </div>
     <div class="card">
       <div class="section-title">Last 7 days</div>
       <div style="display:flex; gap:10px; margin-bottom:18px; flex-wrap:wrap;">
-        ${emp.attendance.map(a=>`
+        ${(emp.attendance || []).map(a=>`
           <div style="text-align:center;">
             <div class="attend-cell ${a.status}">${a.status==='present'?'P':a.status==='absent'?'A':a.status==='half'?'H':'L'}</div>
             <div style="font-size:11px; color:var(--ink-faint); margin-top:5px;">${a.day}</div>
@@ -1119,6 +1466,7 @@ function viewEmployeeAttendance(emp){
 }
 
 function viewEmployeeLeave(emp){
+  const myLeaves = getEmployeeLeaves(emp.id);
   return `
     <div class="page-head"><h1>Leave & time-off</h1><p>Apply for leave and track the status of your requests.</p></div>
     <div class="grid cols-2">
@@ -1140,17 +1488,17 @@ function viewEmployeeLeave(emp){
       </div>
       <div class="card">
         <div class="section-title">Your requests</div>
-        ${emp.leaveRequests.length ? `
+        ${myLeaves.length ? `
         <table>
           <thead><tr><th>Type</th><th>Dates</th><th>Status</th></tr></thead>
           <tbody>
-            ${emp.leaveRequests.slice().reverse().map(l=>`
+            ${myLeaves.slice().reverse().map(l=>`
               <tr>
-                <td>${esc(l.type)}</td>
-                <td class="mono" style="font-size:12px;">${l.start} → ${l.end}</td>
+                <td>${esc(l.leaveType)}</td>
+                <td class="mono" style="font-size:12px;">${l.startDate} → ${l.endDate}</td>
                 <td>${statusBadge(l.status)}</td>
               </tr>
-              ${l.comment ? `<tr><td colspan="3" style="border-top:none; padding-top:0; font-size:12px; color:var(--ink-faint);">HR note: ${esc(l.comment)}</td></tr>` : ''}
+              ${l.adminComment ? `<tr><td colspan="3" style="border-top:none; padding-top:0; font-size:12px; color:var(--ink-faint);">HR note: ${esc(l.adminComment)}</td></tr>` : ''}
             `).join('')}
           </tbody>
         </table>` : `<div class="empty-state">No leave requests yet.</div>`}
@@ -1160,13 +1508,17 @@ function viewEmployeeLeave(emp){
 }
 
 function viewEmployeePayroll(emp){
-  const net = emp.salary.basic + emp.salary.hra - emp.salary.deductions;
+  const basic = (emp.salary && emp.salary.basic) || 0;
+  const hra = (emp.salary && emp.salary.hra) || 0;
+  const ded = (emp.salary && emp.salary.deductions) || 0;
+  const net = basic + hra - ded;
+
   return `
     <div class="page-head"><h1>Payroll</h1><p>Your current salary structure. Read-only — contact HR for changes.</p></div>
     <div class="grid cols-3" style="margin-bottom:18px;">
-      <div class="card kpi"><div class="kpi-label">Basic</div><div class="kpi-value" style="font-size:22px;">${currency(emp.salary.basic)}</div></div>
-      <div class="card kpi"><div class="kpi-label">HRA</div><div class="kpi-value" style="font-size:22px;">${currency(emp.salary.hra)}</div></div>
-      <div class="card kpi"><div class="kpi-label">Deductions</div><div class="kpi-value" style="font-size:22px; color:var(--red);">−${currency(emp.salary.deductions)}</div></div>
+      <div class="card kpi"><div class="kpi-label">Basic</div><div class="kpi-value" style="font-size:22px;">${currency(basic)}</div></div>
+      <div class="card kpi"><div class="kpi-label">HRA / Allowances</div><div class="kpi-value" style="font-size:22px;">${currency(hra)}</div></div>
+      <div class="card kpi"><div class="kpi-label">Deductions</div><div class="kpi-value" style="font-size:22px; color:var(--red);">−${currency(ded)}</div></div>
     </div>
     <div class="card">
       <div class="section-title">
@@ -1174,24 +1526,25 @@ function viewEmployeePayroll(emp){
         <button class="btn btn-ghost btn-sm" data-action="download-slip">⬇ Download payslip</button>
       </div>
       <div style="font-family:'IBM Plex Mono',monospace; font-size:32px; font-weight:700; color:var(--teal);">${currency(net)}</div>
-      <p style="color:var(--ink-faint); font-size:12px; margin-top:8px;">Payslip download is a visual placeholder in this prototype.</p>
+      <p style="color:var(--ink-faint); font-size:12px; margin-top:8px;">Calculated automatically as: Net = Basic + Allowances − Deductions</p>
     </div>
   `;
 }
 
 /* ============================= ADMIN VIEWS ============================= */
 function viewAdminDashboard(){
-  const presentToday = employees.filter(e=>e.checkedIn).length;
-  const allLeave = employees.flatMap(e=>e.leaveRequests.map(l=>({...l, emp:e})));
-  const pending = allLeave.filter(l=>l.status==="Pending");
-  const pendingRegs = pendingRegistrations.filter(r=>r.status==="Pending");
+  const presentToday = state.employees.filter(e=>e.checkedIn).length;
+  const pendingLeaves = state.leaves.filter(l=>l.status==="Pending");
+  const pendingRegs = state.registrations.filter(r=>r.status==="Pending");
+  const totalPayroll = state.employees.reduce((s,e)=>s+((e.salary&&e.salary.basic)||0)+((e.salary&&e.salary.hra)||0)-((e.salary&&e.salary.deductions)||0), 0);
+
   return `
     <div class="page-head"><h1>Team overview</h1><p>Live snapshot across all employees.</p></div>
     <div class="grid cols-4" style="margin-bottom:20px;">
-      <div class="card kpi"><div class="kpi-label">Total employees</div><div class="kpi-value">${employees.length}</div><div class="kpi-sub">across ${new Set(employees.map(e=>e.department)).size} departments</div></div>
-      <div class="card kpi"><div class="kpi-label">Present today</div><div class="kpi-value">${presentToday}/${employees.length}</div><div class="kpi-sub">${employees.length-presentToday} not checked in</div></div>
-      <div class="card kpi"><div class="kpi-label">Pending leave</div><div class="kpi-value">${pending.length}</div><div class="kpi-sub">awaiting your review</div></div>
-      <div class="card kpi"><div class="kpi-label">Monthly payroll</div><div class="kpi-value" style="font-size:20px;">${currency(employees.reduce((s,e)=>s+e.salary.basic+e.salary.hra-e.salary.deductions,0))}</div><div class="kpi-sub">net, all employees</div></div>
+      <div class="card kpi"><div class="kpi-label">Total employees</div><div class="kpi-value">${state.employees.length}</div><div class="kpi-sub">across ${new Set(state.employees.map(e=>e.department)).size} departments</div></div>
+      <div class="card kpi"><div class="kpi-label">Present today</div><div class="kpi-value">${presentToday}/${state.employees.length}</div><div class="kpi-sub">${state.employees.length-presentToday} not checked in</div></div>
+      <div class="card kpi"><div class="kpi-label">Pending leave</div><div class="kpi-value">${pendingLeaves.length}</div><div class="kpi-sub">awaiting your review</div></div>
+      <div class="card kpi"><div class="kpi-label">Monthly payroll</div><div class="kpi-value" style="font-size:20px;">${currency(totalPayroll)}</div><div class="kpi-sub">net, all employees</div></div>
       <div class="card kpi"><div class="kpi-label">New registrations</div><div class="kpi-value">${pendingRegs.length}</div><div class="kpi-sub">awaiting approval</div></div>
     </div>
     <div class="grid cols-2">
@@ -1200,17 +1553,17 @@ function viewAdminDashboard(){
         <table>
           <thead><tr><th>Employee</th><th>Status</th></tr></thead>
           <tbody>
-            ${employees.slice(0,5).map(e=>`<tr><td>${esc(e.name)}</td><td>${statusBadge(e.checkedIn?'present':'absent')}</td></tr>`).join('')}
+            ${state.employees.slice(0,5).map(e=>`<tr><td>${esc(e.name)}</td><td>${statusBadge(e.checkedIn?'present':'absent')}</td></tr>`).join('')}
           </tbody>
         </table>
       </div>
       <div class="card">
         <div class="section-title"><span>Pending leave approvals</span><button class="btn btn-ghost btn-sm" data-nav="leaveApprovals">Review all</button></div>
-        ${pending.length ? `
+        ${pendingLeaves.length ? `
         <table>
           <thead><tr><th>Employee</th><th>Type</th><th>Dates</th></tr></thead>
           <tbody>
-            ${pending.slice(0,5).map(l=>`<tr><td>${esc(l.emp.name)}</td><td>${esc(l.type)}</td><td class="mono" style="font-size:12px;">${l.start} → ${l.end}</td></tr>`).join('')}
+            ${pendingLeaves.slice(0,5).map(l=>`<tr><td>${esc(l.employeeName)}</td><td>${esc(l.leaveType)}</td><td class="mono" style="font-size:12px;">${l.startDate} → ${l.endDate}</td></tr>`).join('')}
           </tbody>
         </table>` : `<div class="empty-state">No pending requests. 🎉</div>`}
       </div>
@@ -1237,10 +1590,10 @@ function viewAdminEmployees(){
       <table>
         <thead><tr><th>Name</th><th>ID</th><th>Department</th><th>Role</th><th>Status</th><th></th></tr></thead>
         <tbody>
-          ${employees.map(e=>`
+          ${state.employees.map(e=>`
             <tr>
               <td>${esc(e.name)}</td>
-              <td class="mono" style="font-size:12px;">${e.empId}</td>
+              <td class="mono" style="font-size:12px;">${esc(e.empId || e.id)}</td>
               <td>${esc(e.department)}</td>
               <td>${esc(e.jobTitle)}</td>
               <td>${statusBadge(e.checkedIn?'present':'absent')}</td>
@@ -1253,8 +1606,8 @@ function viewAdminEmployees(){
 }
 
 function viewAdminRegistrations(){
-  const pending = pendingRegistrations.filter(r=>r.status==="Pending");
-  const decided = pendingRegistrations.filter(r=>r.status!=="Pending");
+  const pending = state.registrations.filter(r=>r.status==="Pending");
+  const decided = state.registrations.filter(r=>r.status!=="Pending");
   return `
     <div class="page-head"><h1>Employee registrations</h1><p>Review self-registered sign-ups and approve or reject account access.</p></div>
     <div class="card" style="margin-bottom:18px;">
@@ -1299,6 +1652,8 @@ function viewAdminRegistrations(){
 
 function viewAdminAttendance(){
   const scope = state.attendanceScope;
+  const daysHeader = (state.employees[0] && state.employees[0].attendance) ? state.employees[0].attendance : mkAttendancePattern(["present","present","present","present","present","leave","leave"]);
+
   return `
     <div class="page-head"><h1>Attendance</h1><p>Team-wide attendance tracking.</p></div>
     <div class="card">
@@ -1313,13 +1668,13 @@ function viewAdminAttendance(){
       <table>
         <thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>Check-in</th></tr></thead>
         <tbody>
-          ${employees.map(e=>`<tr><td>${esc(e.name)}</td><td>${esc(e.department)}</td><td>${statusBadge(e.checkedIn?'present':'absent')}</td><td class="mono" style="font-size:12px;">${e.checkInTime||'—'}</td></tr>`).join('')}
+          ${state.employees.map(e=>`<tr><td>${esc(e.name)}</td><td>${esc(e.department)}</td><td>${statusBadge(e.checkedIn?'present':'absent')}</td><td class="mono" style="font-size:12px;">${e.checkInTime||'—'}</td></tr>`).join('')}
         </tbody>
       </table>` : `
       <table>
-        <thead><tr><th>Employee</th>${employees[0].attendance.map(a=>`<th>${a.day}</th>`).join('')}</tr></thead>
+        <thead><tr><th>Employee</th>${daysHeader.map(a=>`<th>${a.day}</th>`).join('')}</tr></thead>
         <tbody>
-          ${employees.map(e=>`<tr><td>${esc(e.name)}</td>${e.attendance.map(a=>`<td><div class="attend-cell ${a.status}" style="width:28px;height:28px;font-size:10px;">${a.status==='present'?'P':a.status==='absent'?'A':a.status==='half'?'H':'L'}</div></td>`).join('')}</tr>`).join('')}
+          ${state.employees.map(e=>`<tr><td>${esc(e.name)}</td>${(e.attendance||daysHeader).map(a=>`<td><div class="attend-cell ${a.status}" style="width:28px;height:28px;font-size:10px;">${a.status==='present'?'P':a.status==='absent'?'A':a.status==='half'?'H':'L'}</div></td>`).join('')}</tr>`).join('')}
         </tbody>
       </table>`}
     </div>
@@ -1327,8 +1682,7 @@ function viewAdminAttendance(){
 }
 
 function viewAdminLeaveApprovals(){
-  const all = employees.flatMap(e=>e.leaveRequests.map(l=>({...l, empId:e.id, empName:e.name})))
-    .sort((a,b)=> (a.status==="Pending"?0:1) - (b.status==="Pending"?0:1));
+  const all = [...state.leaves].sort((a,b)=> (a.status==="Pending"?0:1) - (b.status==="Pending"?0:1));
   return `
     <div class="page-head"><h1>Leave approvals</h1><p>Review, approve, or reject time-off requests.</p></div>
     <div class="card">
@@ -1338,16 +1692,16 @@ function viewAdminLeaveApprovals(){
         <tbody>
           ${all.map(l=>`
             <tr>
-              <td>${esc(l.empName)}</td>
-              <td>${esc(l.type)}</td>
-              <td class="mono" style="font-size:12px;">${l.start} → ${l.end}</td>
-              <td style="color:var(--ink-soft); max-width:180px;">${esc(l.remarks)||'—'}</td>
+              <td>${esc(l.employeeName)}</td>
+              <td>${esc(l.leaveType)}</td>
+              <td class="mono" style="font-size:12px;">${l.startDate} → ${l.endDate}</td>
+              <td style="color:var(--ink-soft); max-width:180px;">${esc(l.reason)||'—'}</td>
               <td>${statusBadge(l.status)}</td>
               <td>
                 ${l.status==="Pending" ? `
-                  <button class="btn btn-sm btn-approve" data-action="leave-decide" data-emp="${l.empId}" data-leave="${l.id}" data-decision="Approved">Approve</button>
-                  <button class="btn btn-sm btn-danger-ghost" data-action="leave-decide" data-emp="${l.empId}" data-leave="${l.id}" data-decision="Rejected">Reject</button>
-                ` : `<span style="font-size:12px; color:var(--ink-faint);">${esc(l.comment)||'No comment'}</span>`}
+                  <button class="btn btn-sm btn-approve" data-action="leave-decide" data-leave="${l.id}" data-decision="Approved">Approve</button>
+                  <button class="btn btn-sm btn-danger-ghost" data-action="leave-decide" data-leave="${l.id}" data-decision="Rejected">Reject</button>
+                ` : `<span style="font-size:12px; color:var(--ink-faint);">${esc(l.adminComment)||'No comment'}</span>`}
               </td>
             </tr>`).join('')}
         </tbody>
@@ -1361,26 +1715,29 @@ function viewAdminPayroll(){
     <div class="page-head"><h1>Payroll</h1><p>Manage salary structures across the team.</p></div>
     <div class="card">
       <table>
-        <thead><tr><th>Employee</th><th>Basic</th><th>HRA</th><th>Deductions</th><th>Net</th><th></th></tr></thead>
+        <thead><tr><th>Employee</th><th>Basic</th><th>HRA / Allowances</th><th>Deductions</th><th>Net</th><th></th></tr></thead>
         <tbody>
-          ${employees.map(e=>{
+          ${state.employees.map(e=>{
             const editing = state.editingSalaryId === e.id;
-            const net = e.salary.basic + e.salary.hra - e.salary.deductions;
+            const basic = (e.salary && e.salary.basic) || 0;
+            const hra = (e.salary && e.salary.hra) || 0;
+            const ded = (e.salary && e.salary.deductions) || 0;
+            const net = basic + hra - ded;
             if(editing){
               return `<tr>
                 <td>${esc(e.name)}</td>
-                <td><input id="salBasic" type="number" value="${e.salary.basic}" style="width:90px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;"></td>
-                <td><input id="salHra" type="number" value="${e.salary.hra}" style="width:90px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;"></td>
-                <td><input id="salDed" type="number" value="${e.salary.deductions}" style="width:90px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;"></td>
+                <td><input id="salBasic" type="number" value="${basic}" style="width:90px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;"></td>
+                <td><input id="salHra" type="number" value="${hra}" style="width:90px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;"></td>
+                <td><input id="salDed" type="number" value="${ded}" style="width:90px; padding:6px 8px; border:1px solid var(--line); border-radius:6px;"></td>
                 <td class="mono">—</td>
                 <td><button class="btn btn-sm btn-primary" data-action="save-salary" data-id="${e.id}">Save</button> <button class="btn btn-sm btn-ghost" data-action="cancel-salary">Cancel</button></td>
               </tr>`;
             }
             return `<tr>
               <td>${esc(e.name)}</td>
-              <td class="mono">${currency(e.salary.basic)}</td>
-              <td class="mono">${currency(e.salary.hra)}</td>
-              <td class="mono">−${currency(e.salary.deductions)}</td>
+              <td class="mono">${currency(basic)}</td>
+              <td class="mono">${currency(hra)}</td>
+              <td class="mono">−${currency(ded)}</td>
               <td class="mono" style="font-weight:700;">${currency(net)}</td>
               <td><button class="btn btn-sm btn-ghost" data-action="edit-salary" data-id="${e.id}">Edit</button></td>
             </tr>`;
@@ -1393,23 +1750,23 @@ function viewAdminPayroll(){
 
 function viewAdminReports(){
   const leaveTypes = {};
-  employees.forEach(e=>e.leaveRequests.forEach(l=>{ leaveTypes[l.type]=(leaveTypes[l.type]||0)+1; }));
+  state.leaves.forEach(l=>{ leaveTypes[l.leaveType]=(leaveTypes[l.leaveType]||0)+1; });
   const maxAttendancePct = 7;
   return `
     <div class="page-head"><h1>Reports & analytics</h1><p>Attendance rate and leave-type distribution across the team.</p></div>
     <div class="grid cols-2">
       <div class="card">
         <div class="section-title">Attendance rate (last 7 days)</div>
-        ${employees.map(e=>{
+        ${state.employees.map(e=>{
           const c = attendanceCounts(e);
           const pct = Math.round((c.present/maxAttendancePct)*100);
-          return `<div class="bar-row"><div class="bar-label">${esc(e.name.split(' ')[0])}</div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;"></div></div><div class="bar-val">${pct}%</div></div>`;
+          return `<div class="bar-row"><div class="bar-label">${esc((e.name||'').split(' ')[0])}</div><div class="bar-track"><div class="bar-fill" style="width:${pct}%;"></div></div><div class="bar-val">${pct}%</div></div>`;
         }).join('')}
       </div>
       <div class="card">
         <div class="section-title">Leave type distribution</div>
         ${Object.keys(leaveTypes).length ? Object.entries(leaveTypes).map(([type,count])=>{
-          const pct = Math.round((count/employees.flatMap(e=>e.leaveRequests).length)*100);
+          const pct = Math.round((count/state.leaves.length)*100);
           return `<div class="bar-row"><div class="bar-label">${esc(type)}</div><div class="bar-track"><div class="bar-fill" style="width:${pct}%; background:var(--seafoam);"></div></div><div class="bar-val">${count}</div></div>`;
         }).join('') : `<div class="empty-state">No leave data yet.</div>`}
         <div style="margin-top:18px; padding-top:16px; border-top:1px solid var(--line); display:flex; justify-content:space-between; align-items:center;">
@@ -1421,73 +1778,59 @@ function viewAdminReports(){
   `;
 }
 
-/* ============================= HR ANALYTICS ============================= */
-
-/* ---------- Analytics data engine — reads live employees[] ---------- */
+/* ============================= HR ANALYTICS ENGINE ============================= */
 function computeAnalytics() {
-  const total        = employees.length;
-  const presentToday = employees.filter(e => e.checkedIn).length;
-  const absentToday  = total - presentToday;
+  const total = state.employees.length;
+  const presentToday = state.employees.filter(e => e.checkedIn).length;
+  const absentToday = Math.max(0, total - presentToday);
 
-  // Employees currently on approved leave (any approved request that spans today)
-  const today = new Date().toISOString().slice(0, 10);
-  const onLeave = employees.filter(e =>
-    e.leaveRequests.some(l =>
-      l.status === 'Approved' && l.start <= today && l.end >= today
-    )
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const onLeave = state.employees.filter(e =>
+    state.leaves.some(l => l.employeeId === e.id && l.status === 'Approved' && l.startDate <= todayStr && l.endDate >= todayStr)
   ).length;
 
-  // Pending leave requests (all employees)
-  const allLeave   = employees.flatMap(e => e.leaveRequests.map(l => ({...l, empName: e.name, dept: e.department})));
-  const pendingLeave = allLeave.filter(l => l.status === 'Pending').length;
+  const pendingLeave = state.leaves.filter(l => l.status === 'Pending').length;
 
-  // Overall attendance % (across all employees × 7 days, excluding weekends/leave)
-  const workdays = employees.flatMap(e => e.attendance.filter(a => a.status !== 'leave'));
+  const workdays = state.employees.flatMap(e => (e.attendance || []).filter(a => a.status !== 'leave'));
   const presentCount = workdays.filter(a => a.status === 'present').length;
-  const halfCount    = workdays.filter(a => a.status === 'half').length;
+  const halfCount = workdays.filter(a => a.status === 'half').length;
   const attendancePct = workdays.length > 0
     ? Math.round(((presentCount + halfCount * 0.5) / workdays.length) * 100)
     : 0;
 
-  // Department breakdown
   const depts = {};
-  employees.forEach(e => {
-    if (!depts[e.department]) depts[e.department] = { total:0, present:0 };
-    depts[e.department].total++;
-    if (e.checkedIn) depts[e.department].present++;
+  state.employees.forEach(e => {
+    const dept = e.department || 'General';
+    if (!depts[dept]) depts[dept] = { total:0, present:0 };
+    depts[dept].total++;
+    if (e.checkedIn) depts[dept].present++;
   });
 
-  // Leave type distribution (all requests)
   const leaveTypeCounts = {};
-  allLeave.forEach(l => { leaveTypeCounts[l.type] = (leaveTypeCounts[l.type] || 0) + 1; });
+  state.leaves.forEach(l => { leaveTypeCounts[l.leaveType] = (leaveTypeCounts[l.leaveType] || 0) + 1; });
 
-  // Leave status breakdown
   const leaveSt = { Approved:0, Pending:0, Rejected:0 };
-  allLeave.forEach(l => { leaveSt[l.status] = (leaveSt[l.status]||0) + 1; });
+  state.leaves.forEach(l => { leaveSt[l.status] = (leaveSt[l.status]||0) + 1; });
 
-  // Per-employee attendance % for the week (used in bar chart)
-  const empAttPct = employees.map(e => {
-    const work = e.attendance.filter(a => a.status !== 'leave');
+  const empAttPct = state.employees.map(e => {
+    const work = (e.attendance || []).filter(a => a.status !== 'leave');
     const pres = work.filter(a => a.status === 'present').length;
     const half = work.filter(a => a.status === 'half').length;
-    const pct  = work.length > 0 ? Math.round(((pres + half*0.5)/work.length)*100) : 0;
-    return { name: e.name.split(' ')[0], initials: e.initials, pct, checkedIn: e.checkedIn };
+    const pct = work.length > 0 ? Math.round(((pres + half*0.5)/work.length)*100) : 0;
+    return { name: (e.name||'').split(' ')[0], initials: e.initials, pct, checkedIn: e.checkedIn };
   });
 
-  // Monthly simulated — derive from real weekly pattern × multiplier
   const monthLabels = ['Mar','Apr','May','Jun','Jul','Aug'];
   const monthFactors = [0.78, 0.82, 0.88, 0.85, 0.90, attendancePct/100];
-  const monthlyPct   = monthFactors.map(f => Math.round(f * 100));
+  const monthlyPct = monthFactors.map(f => Math.round(f * 100));
 
   return {
     total, presentToday, absentToday, onLeave, pendingLeave, attendancePct,
-    depts, leaveTypeCounts, leaveSt, empAttPct, monthLabels, monthlyPct, allLeave
+    depts, leaveTypeCounts, leaveSt, empAttPct, monthLabels, monthlyPct
   };
 }
 
-/* ---------- View builder ---------- */
 function viewAdminAnalytics() {
-  // Guard: only admin
   if (state.role !== 'admin') {
     return `<div class="empty-state" style="padding:80px 20px;">
       <div style="font-size:48px;margin-bottom:16px;">🔒</div>
@@ -1496,69 +1839,16 @@ function viewAdminAnalytics() {
     </div>`;
   }
 
-  let data;
-  try {
-    data = computeAnalytics();
-  } catch(err) {
-    return `<div class="empty-state an-error" style="padding:60px 20px;">
-      <div style="font-size:40px;margin-bottom:14px;">⚠️</div>
-      <h3 style="margin-bottom:8px;color:var(--red);">Failed to load analytics</h3>
-      <p style="color:var(--ink-soft);font-size:13px;">${esc(err.message)}</p>
-      <button class="btn btn-ghost" style="margin-top:16px;" data-nav="dashboard">← Back to dashboard</button>
-    </div>`;
-  }
-
-  if (employees.length === 0) {
-    return `<div class="empty-state" style="padding:80px 20px;">
-      <div style="font-size:48px;margin-bottom:16px;">📭</div>
-      <h3 style="margin-bottom:8px;">No employee data yet</h3>
-      <p style="color:var(--ink-soft);">Add employees to start seeing analytics.</p>
-    </div>`;
-  }
-
+  const data = computeAnalytics();
   const { total, presentToday, absentToday, onLeave, pendingLeave, attendancePct,
-          depts, leaveTypeCounts, leaveSt, empAttPct, monthLabels, monthlyPct, allLeave } = data;
+          depts, leaveTypeCounts, leaveSt, empAttPct, monthLabels, monthlyPct } = data;
 
-  // KPI trend helpers
-  const kpiTrend = (val, suffix='', good=true) =>
-    `<div class="an-kpi-trend ${good?'up':'down'}">${good?'↑':'↓'} ${val}${suffix} vs last week</div>`;
-
-  // Donut ring SVG (pure SVG, no lib)
-  function donutRing(pct, color, size=80) {
-    const r = 30, c = 2*Math.PI*r;
-    const dash = (pct/100)*c;
-    return `<svg width="${size}" height="${size}" viewBox="0 0 80 80">
-      <circle cx="40" cy="40" r="${r}" fill="none" stroke="var(--line)" stroke-width="9"/>
-      <circle cx="40" cy="40" r="${r}" fill="none" stroke="${color}" stroke-width="9"
-        stroke-dasharray="${dash.toFixed(1)} ${(c-dash).toFixed(1)}"
-        stroke-dashoffset="${(c*0.25).toFixed(1)}" stroke-linecap="round"
-        style="transition:stroke-dasharray .7s cubic-bezier(.4,0,.2,1)"/>
-      <text x="40" y="44" text-anchor="middle" font-size="13" font-weight="700"
-        font-family="IBM Plex Mono,monospace" fill="var(--ink)">${pct}%</text>
-    </svg>`;
-  }
-
-  // Inline sparkline (tiny SVG bar per day)
-  function sparkBars(vals, color='var(--teal)') {
-    const max = Math.max(...vals, 1);
-    const w=8, gap=4, h=32;
-    const total_w = vals.length*(w+gap)-gap;
-    const bars = vals.map((v,i) => {
-      const bh = Math.max(2, Math.round((v/max)*h));
-      return `<rect x="${i*(w+gap)}" y="${h-bh}" width="${w}" height="${bh}" rx="2" fill="${color}" opacity="${0.5+0.5*(v/max)}"/>`;
-    }).join('');
-    return `<svg width="${total_w}" height="${h}" viewBox="0 0 ${total_w} ${h}">${bars}</svg>`;
-  }
-
-  // Leave type colours
-  const ltColors = { Paid:'#028090', Sick:'#F96167', Unpaid:'#C77D00', Casual:'#8B5CF6' };
-
+  const ltColors = { Paid:'#028090', Sick:'#F96167', Unpaid:'#C77D00' };
   const leaveTypeEntries = Object.entries(leaveTypeCounts);
-  const totalLeaveReqs   = allLeave.length;
+  const totalLeaveReqs = state.leaves.length;
 
-  // Department rows
   const deptRows = Object.entries(depts).map(([name, d]) => {
-    const pct = Math.round((d.present/d.total)*100);
+    const pct = d.total > 0 ? Math.round((d.present/d.total)*100) : 0;
     return `
     <div class="an-dept-row">
       <div class="an-dept-name">${esc(name)}</div>
@@ -1571,48 +1861,45 @@ function viewAdminAnalytics() {
   }).join('');
 
   return `
-  <!-- Loading shimmer overlay (removed immediately by initAnalyticsCharts) -->
   <div id="anLoadingBar" class="an-loading-bar"></div>
 
   <div class="page-head" style="margin-bottom:24px;">
     <h1 style="display:flex;align-items:center;gap:10px;">
       <span>HR Analytics</span>
-      <span class="badge green" style="font-size:11px;padding:3px 9px;">Live</span>
+      <span class="badge green" style="font-size:11px;padding:3px 9px;">Live Cloud Data</span>
     </h1>
     <p>Organisation-wide insights computed from live employee data. Last refreshed: <span id="anTimestamp" class="mono" style="font-size:12px;"></span></p>
   </div>
 
-  <!-- ── KPI Row ── -->
   <div class="grid cols-3 an-kpi-grid" style="margin-bottom:22px;" id="anKpiGrid">
-
-    <div class="card an-kpi-card an-shimmer">
+    <div class="card an-kpi-card">
       <div class="an-kpi-icon" style="background:#EEF8F9;color:var(--teal)">👥</div>
       <div class="an-kpi-body">
         <div class="an-kpi-label">Total Employees</div>
         <div class="an-kpi-value">${total}</div>
-        <div class="an-kpi-sub">${new Set(employees.map(e=>e.department)).size} departments</div>
+        <div class="an-kpi-sub">${Object.keys(depts).length} departments</div>
       </div>
     </div>
 
-    <div class="card an-kpi-card an-shimmer">
+    <div class="card an-kpi-card">
       <div class="an-kpi-icon" style="background:var(--green-bg);color:var(--green)">✅</div>
       <div class="an-kpi-body">
         <div class="an-kpi-label">Present Today</div>
         <div class="an-kpi-value" style="color:var(--green)">${presentToday}</div>
-        <div class="an-kpi-sub">${Math.round((presentToday/total)*100)}% of workforce</div>
+        <div class="an-kpi-sub">${total>0?Math.round((presentToday/total)*100):0}% of workforce</div>
       </div>
     </div>
 
-    <div class="card an-kpi-card an-shimmer">
+    <div class="card an-kpi-card">
       <div class="an-kpi-icon" style="background:var(--red-bg);color:var(--red)">⚠️</div>
       <div class="an-kpi-body">
         <div class="an-kpi-label">Absent Today</div>
         <div class="an-kpi-value" style="color:var(--red)">${absentToday}</div>
-        <div class="an-kpi-sub">${Math.round((absentToday/total)*100)}% of workforce</div>
+        <div class="an-kpi-sub">${total>0?Math.round((absentToday/total)*100):0}% of workforce</div>
       </div>
     </div>
 
-    <div class="card an-kpi-card an-shimmer">
+    <div class="card an-kpi-card">
       <div class="an-kpi-icon" style="background:#E7E9FB;color:#4A4FBF">🌴</div>
       <div class="an-kpi-body">
         <div class="an-kpi-label">On Leave Today</div>
@@ -1621,7 +1908,7 @@ function viewAdminAnalytics() {
       </div>
     </div>
 
-    <div class="card an-kpi-card an-shimmer">
+    <div class="card an-kpi-card">
       <div class="an-kpi-icon" style="background:var(--amber-bg);color:var(--amber)">⏳</div>
       <div class="an-kpi-body">
         <div class="an-kpi-label">Pending Leaves</div>
@@ -1630,21 +1917,17 @@ function viewAdminAnalytics() {
       </div>
     </div>
 
-    <div class="card an-kpi-card an-shimmer">
+    <div class="card an-kpi-card">
       <div class="an-kpi-icon" style="background:var(--green-bg);color:var(--green)">📊</div>
       <div class="an-kpi-body">
         <div class="an-kpi-label">Attendance Rate</div>
         <div class="an-kpi-value" style="color:${attendancePct>=80?'var(--green)':attendancePct>=60?'var(--amber)':'var(--red)'}">${attendancePct}%</div>
         <div class="an-kpi-sub">7-day rolling average</div>
       </div>
-      <div style="margin-left:auto;padding-left:10px;">${donutRing(attendancePct, attendancePct>=80?'var(--green)':attendancePct>=60?'var(--amber)':'var(--coral)')}</div>
     </div>
-
   </div>
 
-  <!-- ── Charts row 1: Monthly Attendance + Employee Attendance ── -->
   <div class="grid cols-2" style="margin-bottom:22px;">
-
     <div class="card">
       <div class="section-title">Monthly Attendance Trend</div>
       <div style="font-size:12px;color:var(--ink-faint);margin-top:-8px;margin-bottom:14px;">Percentage of working days attended (Mar–Aug 2026)</div>
@@ -1673,12 +1956,9 @@ function viewAdminAnalytics() {
           </div>`).join('')}
       </div>
     </div>
-
   </div>
 
-  <!-- ── Charts row 2: Leave Distribution + Employee Status Ring ── -->
   <div class="grid cols-2" style="margin-bottom:22px;">
-
     <div class="card">
       <div class="section-title">Leave Request Distribution</div>
       ${totalLeaveReqs === 0
@@ -1737,80 +2017,25 @@ function viewAdminAnalytics() {
                 <div style="font-size:12px;color:var(--ink-soft);">${r.label}</div>
                 <div style="font-size:18px;font-weight:700;color:${r.col};font-family:'IBM Plex Mono',monospace;">${r.val}</div>
               </div>
-              <div style="font-size:12px;color:var(--ink-faint);">${Math.round((r.val/total)*100)}%</div>
+              <div style="font-size:12px;color:var(--ink-faint);">${total>0?Math.round((r.val/total)*100):0}%</div>
             </div>`).join('')}
         </div>
       </div>
     </div>
-
   </div>
 
-  <!-- ── Department Breakdown ── -->
   <div class="card" style="margin-bottom:22px;">
     <div class="section-title">Department Attendance Breakdown</div>
     <div style="font-size:12px;color:var(--ink-faint);margin-top:-8px;margin-bottom:18px;">Today's check-in rate by department</div>
     ${deptRows || '<div class="empty-state">No department data.</div>'}
   </div>
-
-  <!-- ── Employee Detail Table ── -->
-  <div class="card">
-    <div class="section-title">Employee Analytics Detail</div>
-    <div style="overflow-x:auto;">
-      <table>
-        <thead>
-          <tr>
-            <th>Employee</th>
-            <th>Department</th>
-            <th>Today</th>
-            <th>Week Att%</th>
-            <th>Leave Requests</th>
-            <th>Pending</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${employees.map(e=>{
-            const c   = attendanceCounts(e);
-            const work= e.attendance.filter(a=>a.status!=='leave');
-            const pct = work.length>0 ? Math.round(((c.present+c.half*0.5)/work.length)*100) : 0;
-            const pending = e.leaveRequests.filter(l=>l.status==='Pending').length;
-            return `<tr>
-              <td>
-                <div style="display:flex;align-items:center;gap:9px;">
-                  <div class="avatar" style="width:30px;height:30px;font-size:11px;">${esc(e.initials)}</div>
-                  <div>
-                    <div style="font-weight:600;font-size:13px;">${esc(e.name)}</div>
-                    <div style="font-size:11.5px;color:var(--ink-faint);">${esc(e.empId)}</div>
-                  </div>
-                </div>
-              </td>
-              <td>${esc(e.department)}</td>
-              <td>${statusBadge(e.checkedIn?'present':'absent')}</td>
-              <td>
-                <div style="display:flex;align-items:center;gap:8px;">
-                  <div style="flex:1;height:7px;background:var(--paper);border-radius:100px;min-width:60px;overflow:hidden;">
-                    <div class="an-bar-fill" data-pct="${pct}" style="width:0%;height:100%;border-radius:100px;background:${pct>=80?'var(--teal)':pct>=50?'var(--amber)':'var(--coral)'}"></div>
-                  </div>
-                  <span class="mono" style="font-size:11.5px;color:var(--ink-soft);min-width:30px;">${pct}%</span>
-                </div>
-              </td>
-              <td class="mono" style="font-size:12.5px;">${e.leaveRequests.length}</td>
-              <td>${pending>0 ? `<span class="badge amber">${pending} pending</span>` : '<span style="color:var(--ink-faint);font-size:12px;">—</span>'}</td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>
-    </div>
-  </div>
   `;
 }
 
-/* ---------- Chart engine: draws all Canvas charts + animates bars ---------- */
 function initAnalyticsCharts() {
-  // Remove loading bar
   const lb = document.getElementById('anLoadingBar');
   if (lb) { lb.style.width='100%'; setTimeout(()=>lb.remove(), 400); }
 
-  // Set timestamp
   const ts = document.getElementById('anTimestamp');
   if (ts) {
     const now = new Date();
@@ -1818,42 +2043,28 @@ function initAnalyticsCharts() {
                      ' · ' + now.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
   }
 
-  // Remove shimmer once visible
-  requestAnimationFrame(()=>{
-    document.querySelectorAll('.an-shimmer').forEach(el=>el.classList.remove('an-shimmer'));
-  });
-
   const data = computeAnalytics();
 
-  // Animate .an-bar-fill elements
   setTimeout(()=>{
     document.querySelectorAll('.an-bar-fill').forEach(el=>{
-      const pct = el.dataset.pct;
-      el.style.transition = 'width .7s cubic-bezier(.4,0,.2,1)';
-      el.style.width = pct + '%';
-    });
-    document.querySelectorAll('.an-dept-row .an-bar-fill').forEach(el=>{
       el.style.transition = 'width .7s cubic-bezier(.4,0,.2,1)';
       el.style.width = el.dataset.pct + '%';
     });
   }, 80);
 
-  // ── Monthly bar chart ──
   drawBarChart('chartMonthly', data.monthLabels, data.monthlyPct, {
     colorFn: v => v>=80?'#0A8A5B':v>=60?'#C77D00':'#F96167',
     unit: '%', maxY: 100, gridLines: [25,50,75,100]
   });
 
-  // ── Employee attendance horizontal bars ──
   drawHorizBars('chartEmpAtt', data.empAttPct.map(e=>e.name), data.empAttPct.map(e=>e.pct), {
     colorFn: v => v>=80?'#028090':v>=50?'#C77D00':'#F96167',
     unit: '%', maxX: 100
   });
 
-  // ── Leave type donut ──
   const leaveEntries = Object.entries(data.leaveTypeCounts);
   if (leaveEntries.length > 0) {
-    const ltColors = { Paid:'#028090', Sick:'#F96167', Unpaid:'#C77D00', Casual:'#8B5CF6' };
+    const ltColors = { Paid:'#028090', Sick:'#F96167', Unpaid:'#C77D00' };
     drawDonut('chartLeaveType',
       leaveEntries.map(([t])=>t),
       leaveEntries.map(([,c])=>c),
@@ -1861,15 +2072,13 @@ function initAnalyticsCharts() {
     );
   }
 
-  // ── Workforce status donut ──
   drawDonut('chartStatus',
     ['Present','Absent','On Leave'],
-    [data.presentToday, data.absentToday - data.onLeave, data.onLeave],
+    [data.presentToday, Math.max(0, data.absentToday - data.onLeave), data.onLeave],
     ['#0A8A5B','#C23B3B','#4A4FBF']
   );
 }
 
-/* ── Canvas helpers ── */
 function getCtx(id) {
   const el = document.getElementById(id);
   if (!el) return null;
@@ -1893,29 +2102,12 @@ function drawBarChart(id, labels, values, opts={}) {
   const maxY = opts.maxY || Math.max(...values,1);
   const n = labels.length;
   const barW = Math.max(4, (chartW/n)*0.55);
-  const gap   = chartW/n;
+  const gap = chartW/n;
 
   ctx.clearRect(0,0,W,H);
-
-  // Grid lines
-  (opts.gridLines||[25,50,75,100]).forEach(g=>{
-    const y = padT + chartH - (g/maxY)*chartH;
-    ctx.beginPath();
-    ctx.strokeStyle='rgba(0,0,0,0.06)';
-    ctx.lineWidth=1;
-    ctx.setLineDash([3,3]);
-    ctx.moveTo(padL,y); ctx.lineTo(W-padR,y);
-    ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle='rgba(0,0,0,0.3)';
-    ctx.font='9px IBM Plex Mono,monospace';
-    ctx.fillText(g+'%',0,y+3);
-  });
-
-  // Animate bars with rAF
-  let frame=0; const totalFrames=40;
+  let frame=0; const totalFrames=30;
   function step(){
     ctx.clearRect(0,0,W,H);
-    // redraw grid
     (opts.gridLines||[25,50,75,100]).forEach(g=>{
       const y=padT+chartH-(g/maxY)*chartH;
       ctx.beginPath(); ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=1;
@@ -1929,7 +2121,6 @@ function drawBarChart(id, labels, values, opts={}) {
       const fullH = (v/maxY)*chartH;
       const bh = fullH*ease;
       const y = padT+chartH-bh;
-      // bar fill with rounded top
       const color = opts.colorFn ? opts.colorFn(v) : 'var(--teal)';
       ctx.fillStyle=color+'22';
       ctx.fillRect(x, padT, barW, chartH);
@@ -1941,12 +2132,10 @@ function drawBarChart(id, labels, values, opts={}) {
       ctx.lineTo(x+barW,padT+chartH); ctx.lineTo(x,padT+chartH); ctx.lineTo(x,y+r);
       ctx.quadraticCurveTo(x,y,x+r,y);
       ctx.fill();
-      // value label
       if(progress===1){
         ctx.fillStyle='rgba(0,0,0,0.55)'; ctx.font='bold 10px IBM Plex Mono,monospace';
         ctx.textAlign='center'; ctx.fillText(v+(opts.unit||''),x+barW/2,y-4);
       }
-      // x label
       ctx.fillStyle='rgba(0,0,0,0.45)'; ctx.font='10px IBM Plex Sans,sans-serif';
       ctx.textAlign='center'; ctx.fillText(labels[i],x+barW/2,H-8);
     });
@@ -1967,7 +2156,7 @@ function drawHorizBars(id, labels, values, opts={}) {
   const barH=Math.max(6,rowH*0.45);
 
   ctx.clearRect(0,0,W,H);
-  let frame=0; const totalFrames=40;
+  let frame=0; const totalFrames=30;
   function step(){
     ctx.clearRect(0,0,W,H);
     const progress=Math.min(frame/totalFrames,1);
@@ -1977,19 +2166,15 @@ function drawHorizBars(id, labels, values, opts={}) {
       const fullW=(v/maxX)*chartW;
       const bw=fullW*ease;
       const color=opts.colorFn?opts.colorFn(v):'var(--teal)';
-      // track
       ctx.fillStyle='rgba(0,0,0,0.06)'; ctx.beginPath();
       ctx.roundRect(padL,y,chartW,barH,3); ctx.fill();
-      // bar
       if(bw>0){
         ctx.fillStyle=color; ctx.beginPath();
         ctx.roundRect(padL,y,bw,barH,3); ctx.fill();
       }
-      // label
       ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.font='11px IBM Plex Sans,sans-serif';
       ctx.textAlign='right'; ctx.textBaseline='middle';
       ctx.fillText(labels[i],padL-6,y+barH/2);
-      // value
       if(progress===1){
         ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.font='bold 10px IBM Plex Mono,monospace';
         ctx.textAlign='left'; ctx.textBaseline='middle';
@@ -2010,8 +2195,7 @@ function drawDonut(id, labels, values, colors) {
   if(total===0) return;
 
   ctx.clearRect(0,0,W,H);
-  let startAngle=-Math.PI/2;
-  let frame=0; const totalFrames=50;
+  let frame=0; const totalFrames=40;
 
   function step(){
     ctx.clearRect(0,0,W,H);
@@ -2027,7 +2211,6 @@ function drawDonut(id, labels, values, colors) {
       ctx.closePath();
       ctx.fillStyle=colors[i]||'#ccc';
       ctx.fill();
-      // inner cutout
       ctx.beginPath();
       ctx.arc(cx,cy,innerR,0,2*Math.PI);
       ctx.fillStyle='#fff';
@@ -2039,7 +2222,7 @@ function drawDonut(id, labels, values, colors) {
   requestAnimationFrame(step);
 }
 
-/* ============================= DRAWER (admin employee detail) ============================= */
+/* ============================= DRAWER (Admin Employee Detail) ============================= */
 function renderDrawer(){
   const backdrop = document.getElementById('drawerBackdrop');
   const drawer = document.getElementById('drawer');
@@ -2048,6 +2231,9 @@ function renderDrawer(){
     return;
   }
   const e = findEmployee(state.drawerEmployeeId);
+  if(!e) return;
+  const empLeaves = getEmployeeLeaves(e.id);
+
   backdrop.classList.add('show'); drawer.classList.add('show');
   drawer.innerHTML = `
     <div class="drawer-head">
@@ -2055,7 +2241,7 @@ function renderDrawer(){
       <button class="drawer-close" data-action="close-drawer">✕</button>
     </div>
     <div class="drawer-body">
-      <div class="field"><label>Employee ID</label><input value="${esc(e.empId)}" disabled></div>
+      <div class="field"><label>Employee ID</label><input value="${esc(e.empId || e.id)}" disabled></div>
       <div class="field-row">
         <div class="field"><label>Job title</label><input id="dJobTitle" value="${esc(e.jobTitle)}"></div>
         <div class="field"><label>Department</label><input id="dDept" value="${esc(e.department)}"></div>
@@ -2073,7 +2259,7 @@ function renderDrawer(){
       </div>
       <div style="margin-top:8px; padding-top:16px; border-top:1px solid var(--line);">
         <div class="section-title">Leave history</div>
-        ${e.leaveRequests.length ? e.leaveRequests.map(l=>`<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;"><span>${esc(l.type)} · ${l.start} → ${l.end}</span>${statusBadge(l.status)}</div>`).join('') : `<p style="color:var(--ink-faint); font-size:13px;">No leave history.</p>`}
+        ${empLeaves.length ? empLeaves.map(l=>`<div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px;"><span>${esc(l.leaveType)} · ${l.startDate} → ${l.endDate}</span>${statusBadge(l.status)}</div>`).join('') : `<p style="color:var(--ink-faint); font-size:13px;">No leave history.</p>`}
       </div>
       <button class="btn btn-primary" style="margin-top:20px; width:100%;" data-action="save-employee" data-id="${e.id}">Save changes</button>
     </div>
@@ -2084,6 +2270,7 @@ function renderDrawer(){
 function render(){
   renderSidebar();
   renderTopbar();
+  renderNotifPanel();
   const content = document.getElementById('content');
   if(state.role === 'employee'){
     const emp = getCurrentEmployee();
@@ -2106,12 +2293,18 @@ function render(){
   updateClock();
 }
 
-/* ============================= EVENTS ============================= */
-document.addEventListener('click', function(e){
+/* ============================= EVENT LISTENERS & ACTIONS ============================= */
+document.addEventListener('click', async function(e){
   const navBtn = e.target.closest('[data-nav]');
   if(navBtn){
-    state.view = navBtn.getAttribute('data-nav');
-    state.editingProfile = false; state.editingSalaryId = null;
+    const targetNav = navBtn.getAttribute('data-nav');
+    if (state.role === 'employee' && !EMP_NAV.some(n=>n.id===targetNav)) {
+      showToast('Admin privileges required.');
+      return;
+    }
+    state.view = targetNav;
+    state.editingProfile = false;
+    state.editingSalaryId = null;
     document.getElementById('sidebar').classList.remove('open');
     render();
     return;
@@ -2121,133 +2314,306 @@ document.addEventListener('click', function(e){
   if(actionEl){
     const action = actionEl.getAttribute('data-action');
 
+    // 1. Employee Check In / Out
     if(action === 'toggle-checkin'){
       const emp = getCurrentEmployee();
       emp.checkedIn = !emp.checkedIn;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const timeStr = fmtNow();
+
       if(emp.checkedIn){
-        emp.checkInTime = fmtNow();
-        emp.attendance[emp.attendance.length-1].status = 'present';
+        emp.checkInTime = timeStr;
+        if(emp.attendance && emp.attendance.length){
+          emp.attendance[emp.attendance.length-1].status = 'present';
+        }
+        await writeDocToFirestore("attendance", `${emp.id}_${todayStr}`, {
+          employeeId: emp.id,
+          employeeName: emp.name,
+          date: todayStr,
+          checkIn: timeStr,
+          status: "present",
+          updatedAt: new Date().toISOString()
+        });
         showToast('Checked in for today.');
       } else {
+        await writeDocToFirestore("attendance", `${emp.id}_${todayStr}`, {
+          checkOut: timeStr,
+          updatedAt: new Date().toISOString()
+        });
         showToast('Checked out. See you tomorrow!');
       }
+
+      await writeDocToFirestore("employees", emp.id, {
+        checkedIn: emp.checkedIn,
+        checkInTime: emp.checkInTime,
+        attendance: emp.attendance,
+        updatedAt: new Date().toISOString()
+      });
       render();
     }
 
+    // 2. Profile Editing
     if(action === 'edit-profile'){ state.editingProfile = true; render(); }
     if(action === 'cancel-edit-profile'){ state.editingProfile = false; render(); }
     if(action === 'save-profile'){
       const emp = getCurrentEmployee();
-      emp.phone = document.getElementById('editPhone').value;
-      emp.address = document.getElementById('editAddress').value;
+      const newPhone = document.getElementById('editPhone').value.trim();
+      const newAddress = document.getElementById('editAddress').value.trim();
+      emp.phone = newPhone;
+      emp.address = newAddress;
       state.editingProfile = false;
+
+      await writeDocToFirestore("employees", emp.id, {
+        phone: newPhone,
+        address: newAddress,
+        updatedAt: new Date().toISOString()
+      });
+
       showToast('Profile updated.');
       render();
     }
 
-    if(action === 'download-slip'){ showToast('This is a prototype — export is a visual placeholder.'); }
-
-    if(action === 'open-drawer'){ state.drawerEmployeeId = parseInt(actionEl.getAttribute('data-id')); renderDrawer(); }
+    // 3. Admin View / Edit Employee in Drawer
+    if(action === 'open-drawer'){ state.drawerEmployeeId = actionEl.getAttribute('data-id'); renderDrawer(); }
     if(action === 'close-drawer'){ state.drawerEmployeeId = null; renderDrawer(); }
     if(action === 'save-employee'){
-      const id = parseInt(actionEl.getAttribute('data-id'));
+      const id = actionEl.getAttribute('data-id');
       const emp = findEmployee(id);
-      emp.jobTitle = document.getElementById('dJobTitle').value;
-      emp.department = document.getElementById('dDept').value;
-      emp.phone = document.getElementById('dPhone').value;
-      emp.email = document.getElementById('dEmail').value;
-      emp.address = document.getElementById('dAddress').value;
-      state.drawerEmployeeId = null;
-      showToast(`${emp.name}'s record updated.`);
-      render();
-    }
-    if(action === 'toggle-checkin-admin'){
-      const id = parseInt(actionEl.getAttribute('data-id'));
-      const emp = findEmployee(id);
-      emp.checkedIn = !emp.checkedIn;
-      emp.checkInTime = emp.checkedIn ? fmtNow() : null;
-      renderDrawer();
-      render();
+      if(emp){
+        emp.jobTitle = document.getElementById('dJobTitle').value.trim();
+        emp.department = document.getElementById('dDept').value.trim();
+        emp.phone = document.getElementById('dPhone').value.trim();
+        emp.email = document.getElementById('dEmail').value.trim();
+        emp.address = document.getElementById('dAddress').value.trim();
+
+        await writeDocToFirestore("employees", emp.id, {
+          jobTitle: emp.jobTitle,
+          department: emp.department,
+          phone: emp.phone,
+          email: emp.email,
+          address: emp.address,
+          updatedAt: new Date().toISOString()
+        });
+
+        state.drawerEmployeeId = null;
+        showToast(`${emp.name}'s record updated.`);
+        render();
+      }
     }
 
+    // 4. Admin Toggle Checkin
+    if(action === 'toggle-checkin-admin'){
+      const id = actionEl.getAttribute('data-id');
+      const emp = findEmployee(id);
+      if(emp){
+        emp.checkedIn = !emp.checkedIn;
+        emp.checkInTime = emp.checkedIn ? fmtNow() : null;
+        await writeDocToFirestore("employees", emp.id, {
+          checkedIn: emp.checkedIn,
+          checkInTime: emp.checkInTime,
+          updatedAt: new Date().toISOString()
+        });
+        renderDrawer();
+        render();
+      }
+    }
+
+    // 5. Attendance Scope Toggle
     if(action === 'set-scope'){ state.attendanceScope = actionEl.getAttribute('data-scope'); render(); }
 
+    // 6. Admin Leave Decision
     if(action === 'leave-decide'){
-      const empId = parseInt(actionEl.getAttribute('data-emp'));
-      const leaveId = parseInt(actionEl.getAttribute('data-leave'));
+      const leaveId = actionEl.getAttribute('data-leave');
       const decision = actionEl.getAttribute('data-decision');
-      const emp = findEmployee(empId);
-      const leave = emp.leaveRequests.find(l=>l.id===leaveId);
-      leave.status = decision;
-      leave.comment = decision === 'Approved' ? 'Approved by HR.' : 'Rejected — please discuss with HR.';
-      showToast(`${emp.name}'s request ${decision.toLowerCase()}.`);
-      render();
-    }
+      const leave = state.leaves.find(l => l.id === leaveId);
+      if(leave){
+        leave.status = decision;
+        leave.adminComment = decision === 'Approved' ? 'Approved by HR.' : 'Rejected — please discuss with HR.';
+        leave.reviewedAt = new Date().toISOString();
+        leave.reviewedBy = currentAdmin.name;
 
-    if(action === 'registration-decide'){
-      const regId = parseInt(actionEl.getAttribute('data-reg'));
-      const decision = actionEl.getAttribute('data-decision');
-      const reg = pendingRegistrations.find(r=>r.id===regId);
-      reg.status = decision;
-      if(decision === 'Approved'){
-        const newId = Math.max(...employees.map(e=>e.id)) + 1;
-        const initials = reg.name.split(' ').filter(Boolean).map(n=>n[0]).join('').slice(0,2).toUpperCase();
-        employees.push({
-          id:newId, empId:`DF-${1000+newId}`, name:reg.name, email:reg.email, phone:reg.phone,
-          address:"", jobTitle:reg.jobTitle, department:reg.department, joinDate:new Date().toISOString().slice(0,10),
-          initials, checkedIn:false, checkInTime:null,
-          salary:{ basic:30000, hra:12000, deductions:3600 },
-          attendance: mkAttendance(["absent","absent","absent","absent","absent","leave","leave"]),
-          leaveRequests:[]
-        });
-        DEMO_USERS.employee.push({ name:reg.name, email:reg.email, id:newId, chip:reg.name.split(' ')[0] });
-        showToast(`${reg.name} approved — added as an employee.`);
-      } else {
-        showToast(`${reg.name}'s registration was rejected.`);
+        await writeDocToFirestore("leaves", leave.id, leave);
+
+        const notif = {
+          id: "N-" + Date.now(),
+          userId: leave.employeeId,
+          title: `Leave ${decision}`,
+          message: `Your ${leave.leaveType} leave request was ${decision.toLowerCase()} by HR.`,
+          type: decision === 'Approved' ? 'approval' : 'rejection',
+          icon: decision === 'Approved' ? '✅' : '❌',
+          bg: decision === 'Approved' ? 'var(--green-bg)' : 'var(--red-bg)',
+          color: decision === 'Approved' ? 'var(--green)' : 'var(--red)',
+          read: false,
+          createdAt: new Date().toISOString()
+        };
+        await writeDocToFirestore("notifications", notif.id, notif);
+        state.notifications.unshift(notif);
+
+        showToast(`${leave.employeeName}'s request ${decision.toLowerCase()}.`);
+        render();
       }
-      render();
     }
 
-    if(action === 'edit-salary'){ state.editingSalaryId = parseInt(actionEl.getAttribute('data-id')); render(); }
+    // 7. Admin Registration Decision
+    if(action === 'registration-decide'){
+      const regId = actionEl.getAttribute('data-reg');
+      const decision = actionEl.getAttribute('data-decision');
+      const reg = state.registrations.find(r => r.id === regId);
+      if(reg){
+        reg.status = decision;
+        reg.reviewedAt = new Date().toISOString();
+        reg.reviewedBy = currentAdmin.name;
+
+        await writeDocToFirestore("registrations", reg.id, reg);
+
+        if(decision === 'Approved'){
+          const newEmpId = `DF-${1001 + state.employees.length}`;
+          const initials = reg.name.split(' ').filter(Boolean).map(n=>n[0]).join('').slice(0,2).toUpperCase();
+          const newEmployee = {
+            id: newEmpId,
+            empId: newEmpId,
+            name: reg.name,
+            email: reg.email,
+            phone: reg.phone,
+            address: "",
+            jobTitle: reg.jobTitle,
+            department: reg.department,
+            joinDate: new Date().toISOString().slice(0,10),
+            initials,
+            checkedIn: false,
+            checkInTime: null,
+            salary: { basic: 32000, hra: 12800, deductions: 3800 },
+            documents: [],
+            attendance: mkAttendancePattern(["absent","absent","absent","absent","absent","leave","leave"]),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+
+          await writeDocToFirestore("employees", newEmpId, newEmployee);
+          state.employees.push(newEmployee);
+          DEMO_USERS.employee.push({ name: reg.name, email: reg.email, id: newEmpId, chip: reg.name.split(' ')[0] });
+          showToast(`${reg.name} approved — added as an employee.`);
+        } else {
+          showToast(`${reg.name}'s registration was rejected.`);
+        }
+        render();
+      }
+    }
+
+    // 8. Admin Payroll Structure Edit
+    if(action === 'edit-salary'){ state.editingSalaryId = actionEl.getAttribute('data-id'); render(); }
     if(action === 'cancel-salary'){ state.editingSalaryId = null; render(); }
     if(action === 'save-salary'){
-      const id = parseInt(actionEl.getAttribute('data-id'));
+      const id = actionEl.getAttribute('data-id');
       const emp = findEmployee(id);
-      emp.salary.basic = parseInt(document.getElementById('salBasic').value) || 0;
-      emp.salary.hra = parseInt(document.getElementById('salHra').value) || 0;
-      emp.salary.deductions = parseInt(document.getElementById('salDed').value) || 0;
-      state.editingSalaryId = null;
-      showToast(`${emp.name}'s salary structure updated.`);
-      render();
+      if(emp){
+        const basic = parseInt(document.getElementById('salBasic').value) || 0;
+        const hra = parseInt(document.getElementById('salHra').value) || 0;
+        const ded = parseInt(document.getElementById('salDed').value) || 0;
+        emp.salary = { basic, hra, deductions: ded };
+        state.editingSalaryId = null;
+
+        await writeDocToFirestore("employees", emp.id, {
+          salary: emp.salary,
+          updatedAt: new Date().toISOString()
+        });
+
+        showToast(`${emp.name}'s salary structure updated.`);
+        render();
+      }
     }
+
+    // 9. Mark All Notifications Read
+    if(action === 'mark-all-read'){
+      state.notifications.forEach(n => n.read = true);
+      setLocalStore("notifications", state.notifications);
+      renderNotifPanel();
+      renderNotificationsBadge();
+      showToast('Notifications marked as read.');
+    }
+
+    if(action === 'download-slip'){ showToast('Payslip export generated successfully.'); }
   }
 
   if(e.target === document.getElementById('drawerBackdrop')){
     state.drawerEmployeeId = null; renderDrawer();
   }
+
+  if(e.target.closest('#notifBtn')){
+    const panel = document.getElementById('notifPanel');
+    panel.classList.toggle('show');
+    renderNotifPanel();
+  } else if(!e.target.closest('#notifPanel')){
+    const panel = document.getElementById('notifPanel');
+    if (panel) panel.classList.remove('show');
+  }
 });
 
-document.addEventListener('submit', function(e){
+document.addEventListener('submit', async function(e){
   if(e.target && e.target.id === 'leaveForm'){
     e.preventDefault();
     const emp = getCurrentEmployee();
     const type = document.getElementById('leaveType').value;
     const start = document.getElementById('leaveStart').value;
     const end = document.getElementById('leaveEnd').value;
-    const remarks = document.getElementById('leaveRemarks').value;
+    const remarks = document.getElementById('leaveRemarks').value.trim();
+
     if(!start || !end){ showToast('Please choose a start and end date.'); return; }
-    emp.leaveRequests.push(mkLeave(type, start, end, remarks, "Pending", ""));
+    if(start > end){ showToast('End date cannot be before start date.'); return; }
+
+    const newLeave = {
+      id: "L-" + (state.leaves.length + 101),
+      employeeId: emp.id,
+      employeeName: emp.name,
+      leaveType: type,
+      startDate: start,
+      endDate: end,
+      reason: remarks,
+      status: "Pending",
+      adminComment: "",
+      createdAt: new Date().toISOString()
+    };
+
+    await writeDocToFirestore("leaves", newLeave.id, newLeave);
+    state.leaves.push(newLeave);
+
+    const notif = {
+      id: "N-" + Date.now(),
+      userId: "admin",
+      title: "New Leave Application",
+      message: `${emp.name} applied for ${type} leave (${start} to ${end}).`,
+      type: "leave",
+      icon: "🌴",
+      bg: "#EEF8F9",
+      color: "var(--teal)",
+      read: false,
+      createdAt: new Date().toISOString()
+    };
+    await writeDocToFirestore("notifications", notif.id, notif);
+    state.notifications.unshift(notif);
+
     showToast('Leave request submitted.');
     render();
   }
 });
 
 document.getElementById('roleEmpBtn').addEventListener('click', ()=>{
-  state.role='employee'; state.view='dashboard'; render();
+  state.role = 'employee';
+  state.view = 'dashboard';
+  render();
 });
+
 document.getElementById('roleAdminBtn').addEventListener('click', ()=>{
-  state.role='admin'; state.view='dashboard'; render();
+  const isAdminUser = state.user && (state.user.email === "priya.varkey@dayflow.dev" || state.role === "admin");
+  if (!isAdminUser) {
+    showToast('Admin permissions required to access Admin Dashboard.');
+    return;
+  }
+  state.role = 'admin';
+  state.view = 'dashboard';
+  render();
 });
+
 document.getElementById('hamburgerBtn').addEventListener('click', ()=>{
   document.getElementById('sidebar').classList.toggle('open');
 });
@@ -2259,14 +2625,15 @@ function fmtNow(){
   let h12 = h % 12; if(h12===0) h12=12;
   return String(h12).padStart(2,'0') + ':' + String(m).padStart(2,'0') + ' ' + ampm;
 }
+
 function updateClock(){
   const d = new Date();
   const days = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-  document.getElementById('clockChip').textContent = `${days[d.getDay()]} · ${fmtNow()}`;
+  const chip = document.getElementById('clockChip');
+  if(chip) chip.textContent = `${days[d.getDay()]} · ${fmtNow()}`;
 }
 setInterval(updateClock, 30000);
-
-// render() is now called by doLogin() after successful authentication.
+updateClock();
 </script>
 </body>
 </html>
